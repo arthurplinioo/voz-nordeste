@@ -1,0 +1,19 @@
+{
+  "name": "Voz Nordeste — estúdio de voz",
+  "short_name": "Voz Nordeste",
+  "description": "Transforme texto e fala em outra voz, com sotaque nordestino, pausas, velocidade, tom e timbre ajustáveis. Roda no navegador.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#12100e",
+  "theme_color": "#12100e",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["productivity", "utilities", "music"],
+  "icons": [
+    { "src": "icones/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icones/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icones/icone-mascara.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

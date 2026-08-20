@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "voz-nordeste",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["ferramentas/servidor.mjs"],
+      "port": 4173
+    }
+  ]
+}

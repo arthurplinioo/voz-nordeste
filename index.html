@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Voz Nordeste — estúdio de voz com IA</title>
+<meta name="description" content="Transforme texto e fala em outra voz, com sotaque nordestino, controle de pausas, velocidade, tom e timbre. Roda no navegador.">
+<meta name="theme-color" content="#12100e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icones/icone-192.png">
+<link rel="apple-touch-icon" href="icones/icone-192.png">
+<link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+
+<a class="pular" href="#principal">Pular para o conteúdo</a>
+
+<header class="cabecalho">
+  <div class="marca">
+    <span class="marca-icone" aria-hidden="true">🌵</span>
+    <div>
+      <h1>Voz Nordeste</h1>
+      <p class="marca-sub">Estúdio de voz no navegador</p>
+    </div>
+  </div>
+  <nav class="abas" role="tablist" aria-label="Seções do app">
+    <button class="aba ativa" role="tab" aria-selected="true" aria-controls="painel-texto" id="aba-texto">Texto → Voz</button>
+    <button class="aba" role="tab" aria-selected="false" aria-controls="painel-voz" id="aba-voz">Voz → Voz</button>
+    <button class="aba" role="tab" aria-selected="false" aria-controls="painel-vozes" id="aba-vozes">Vozes</button>
+    <button class="aba" role="tab" aria-selected="false" aria-controls="painel-ajustes" id="aba-ajustes">Ajustes</button>
+  </nav>
+</header>
+
+<main id="principal">
+
+<!-- ===================== TEXTO -> VOZ ===================== -->
+<section class="painel ativo" id="painel-texto" role="tabpanel" aria-labelledby="aba-texto">
+  <div class="colunas">
+
+    <div class="coluna-principal">
+      <div class="caixa">
+        <div class="caixa-topo">
+          <h2>Texto</h2>
+          <div class="acoes-linha">
+            <button class="botao pequeno" id="btn-inserir-pausa" title="Insere uma pausa na posição do cursor">+ pausa</button>
+            <button class="botao pequeno" id="btn-inserir-enfase" title="Envolve a seleção com ênfase">+ ênfase</button>
+            <button class="botao pequeno" id="btn-exemplo">Exemplo</button>
+            <button class="botao pequeno" id="btn-limpar">Limpar</button>
+          </div>
+        </div>
+        <textarea id="entrada-texto" rows="12" spellcheck="true"
+          placeholder="Escreva ou cole o texto aqui. Use [pausa 800] para uma pausa de 800 ms e *assim* para dar ênfase."></textarea>
+        <div class="rodape-caixa">
+          <span id="contador">0 caracteres</span>
+          <span id="estimativa"></span>
+        </div>
+      </div>
+
+      <details class="caixa previa" id="caixa-previa">
+        <summary>Como vai ser falado <span class="dica" id="resumo-previa"></span></summary>
+        <p class="texto-previa" id="texto-previa"></p>
+        <div class="mudancas" id="mudancas"></div>
+      </details>
+
+      <div class="caixa player" id="player">
+        <div class="player-topo">
+          <button class="botao principal grande" id="btn-gerar">Gerar áudio</button>
+          <button class="botao grande" id="btn-amostra" title="Ouve uma frase curta com os ajustes atuais">Ouvir amostra</button>
+          <button class="botao grande escondido" id="btn-cancelar">Cancelar</button>
+        </div>
+        <div class="barra-progresso escondido" id="barra-progresso">
+          <div class="barra-preenchida" id="barra-preenchida"></div>
+          <span class="barra-rotulo" id="barra-rotulo"></span>
+        </div>
+        <canvas class="onda" id="onda" height="90" aria-label="Forma de onda do áudio gerado"></canvas>
+        <div class="controles-player">
+          <button class="botao redondo" id="btn-tocar" disabled aria-label="Tocar">▶</button>
+          <span class="tempo" id="tempo">0:00 / 0:00</span>
+          <div class="espacador"></div>
+          <button class="botao pequeno" id="btn-baixar-wav" disabled>Baixar WAV</button>
+          <button class="botao pequeno" id="btn-baixar-mp3" disabled>Baixar MP3</button>
+          <button class="botao pequeno" id="btn-salvar-audio" disabled>Salvar no app</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="coluna-lateral">
+      <div class="caixa">
+        <h2>Voz</h2>
+        <div class="grade-vozes" id="grade-vozes"></div>
+        <p class="dica" id="dica-voz"></p>
+      </div>
+
+      <div class="caixa">
+        <h2>Sotaque nordestino</h2>
+        <label class="campo">
+          <span>Intensidade: <b id="rotulo-sotaque">Médio</b></span>
+          <input type="range" id="sotaque-nivel" min="0" max="3" step="1" value="2">
+        </label>
+        <label class="campo">
+          <span>Região</span>
+          <select id="sotaque-variante"></select>
+        </label>
+        <label class="alternar">
+          <input type="checkbox" id="sotaque-girias">
+          <span>Usar gírias e bordões regionais</span>
+        </label>
+        <p class="dica">O sotaque é feito reescrevendo o texto para a grafia que produz a pronúncia certa. Veja o resultado em “Como vai ser falado”.</p>
+      </div>
+
+      <div class="caixa">
+        <h2>Fala</h2>
+        <label class="campo">
+          <span>Velocidade: <b id="rotulo-velocidade">1,00×</b></span>
+          <input type="range" id="velocidade" min="0.6" max="1.8" step="0.02" value="1">
+        </label>
+        <label class="campo">
+          <span>Tom: <b id="rotulo-tom">0</b> semitons</span>
+          <input type="range" id="tom" min="-12" max="12" step="0.5" value="0">
+        </label>
+        <label class="campo">
+          <span>Timbre (formante): <b id="rotulo-formante">0</b></span>
+          <input type="range" id="formante" min="-8" max="8" step="0.5" value="0">
+        </label>
+        <p class="dica">Tom muda a altura da voz. Timbre muda o “tamanho” de quem fala — é a combinação dos dois que troca a voz de verdade.</p>
+      </div>
+
+      <div class="caixa">
+        <h2>Pausas</h2>
+        <label class="campo">
+          <span>Entre frases: <b id="rotulo-pausa-frase">350</b> ms</span>
+          <input type="range" id="pausa-frase" min="0" max="2000" step="50" value="350">
+        </label>
+        <label class="campo">
+          <span>Entre parágrafos: <b id="rotulo-pausa-paragrafo">900</b> ms</span>
+          <input type="range" id="pausa-paragrafo" min="0" max="4000" step="50" value="900">
+        </label>
+        <label class="campo">
+          <span>Em vírgulas: <b id="rotulo-pausa-virgula">0</b> ms</span>
+          <input type="range" id="pausa-virgula" min="0" max="1200" step="25" value="0">
+        </label>
+        <p class="dica">Vírgula em zero deixa o modelo cuidar do ritmo sozinho, que costuma soar mais natural.</p>
+      </div>
+
+      <div class="caixa">
+        <h2>Presets</h2>
+        <div class="linha">
+          <select id="lista-presets"><option value="">— escolher —</option></select>
+          <button class="botao pequeno" id="btn-aplicar-preset">Aplicar</button>
+        </div>
+        <div class="linha">
+          <input type="text" id="nome-preset" placeholder="Nome do preset">
+          <button class="botao pequeno" id="btn-salvar-preset">Salvar</button>
+        </div>
+        <button class="botao pequeno perigo" id="btn-apagar-preset">Apagar o selecionado</button>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ===================== VOZ -> VOZ ===================== -->
+<section class="painel" id="painel-voz" role="tabpanel" aria-labelledby="aba-voz" hidden>
+  <div class="colunas">
+    <div class="coluna-principal">
+
+      <div class="caixa">
+        <h2>1. Áudio de entrada</h2>
+        <div class="acoes-linha">
+          <button class="botao principal" id="btn-gravar">Gravar do microfone</button>
+          <button class="botao" id="btn-parar-gravacao" disabled>Parar</button>
+          <label class="botao arquivo">
+            Carregar arquivo
+            <input type="file" id="arquivo-audio" accept="audio/*" hidden>
+          </label>
+        </div>
+        <div class="medidor escondido" id="medidor"><div class="medidor-nivel" id="medidor-nivel"></div></div>
+        <canvas class="onda pequena" id="onda-entrada" height="70" aria-label="Forma de onda do áudio de entrada"></canvas>
+        <div class="controles-player">
+          <button class="botao redondo" id="btn-tocar-entrada" disabled aria-label="Tocar entrada">▶</button>
+          <span class="tempo" id="tempo-entrada">0:00 / 0:00</span>
+          <div class="espacador"></div>
+          <span class="dica" id="info-entrada">Nenhum áudio carregado.</span>
+        </div>
+      </div>
+
+      <div class="caixa">
+        <h2>2. O que fazer com ele</h2>
+        <div class="modos" role="radiogroup" aria-label="Modo de transformação">
+          <label class="modo">
+            <input type="radio" name="modo-voz" value="efeitos" checked>
+            <div>
+              <b>Trocar o timbre</b>
+              <span>Mantém sua entonação e seu ritmo, muda só a voz. Roda offline.</span>
+            </div>
+          </label>
+          <label class="modo">
+            <input type="radio" name="modo-voz" value="refalar">
+            <div>
+              <b>Transcrever e refalar</b>
+              <span>Passa sua fala para texto, você edita, e uma voz do app fala. Precisa de internet e só funciona com o microfone.</span>
+            </div>
+          </label>
+          <label class="modo">
+            <input type="radio" name="modo-voz" value="nuvem">
+            <div>
+              <b>Conversão na nuvem</b>
+              <span>Fala → fala com IA de verdade, inclusive com voz clonada. Precisa de chave em Ajustes.</span>
+            </div>
+          </label>
+        </div>
+
+        <div id="bloco-efeitos">
+          <h3>Efeito rápido</h3>
+          <div class="grade-efeitos" id="grade-efeitos"></div>
+          <label class="campo">
+            <span>Tom: <b id="rotulo-tom-voz">0</b> semitons</span>
+            <input type="range" id="tom-voz" min="-12" max="12" step="0.5" value="0">
+          </label>
+          <label class="campo">
+            <span>Timbre: <b id="rotulo-formante-voz">0</b></span>
+            <input type="range" id="formante-voz" min="-8" max="8" step="0.5" value="0">
+          </label>
+          <label class="campo">
+            <span>Velocidade: <b id="rotulo-velocidade-voz">1,00×</b></span>
+            <input type="range" id="velocidade-voz" min="0.6" max="1.8" step="0.02" value="1">
+          </label>
+          <label class="alternar">
+            <input type="checkbox" id="limpar-ruido">
+            <span>Cortar o chiado entre as falas</span>
+          </label>
+        </div>
+
+        <div id="bloco-refalar" hidden>
+          <p class="aviso">
+            A transcrição usa o serviço do navegador: o áudio do microfone é enviado
+            para o servidor do fabricante. Nada mais no app faz isso.
+          </p>
+          <div class="acoes-linha">
+            <button class="botao" id="btn-transcrever">Falar e transcrever</button>
+            <button class="botao" id="btn-parar-transcricao" disabled>Parar</button>
+          </div>
+          <textarea id="texto-transcrito" rows="6" placeholder="O texto reconhecido aparece aqui. Você pode corrigir antes de gerar."></textarea>
+          <p class="dica">Depois de revisar, use “Transformar”: o texto é falado pela voz escolhida na aba Texto → Voz, com o sotaque configurado lá.</p>
+        </div>
+
+        <div id="bloco-nuvem" hidden>
+          <p class="aviso" id="aviso-nuvem">Configure a chave em Ajustes para usar este modo.</p>
+          <label class="campo">
+            <span>Voz de destino</span>
+            <select id="voz-nuvem-sts"></select>
+          </label>
+          <label class="alternar">
+            <input type="checkbox" id="nuvem-limpar-ruido" checked>
+            <span>Remover ruído de fundo antes de converter</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="caixa player">
+        <div class="player-topo">
+          <button class="botao principal grande" id="btn-transformar" disabled>Transformar</button>
+          <button class="botao grande escondido" id="btn-cancelar-voz">Cancelar</button>
+        </div>
+        <div class="barra-progresso escondido" id="barra-progresso-voz">
+          <div class="barra-preenchida" id="barra-preenchida-voz"></div>
+          <span class="barra-rotulo" id="barra-rotulo-voz"></span>
+        </div>
+        <canvas class="onda" id="onda-saida" height="90" aria-label="Forma de onda do áudio transformado"></canvas>
+        <div class="controles-player">
+          <button class="botao redondo" id="btn-tocar-saida" disabled aria-label="Tocar resultado">▶</button>
+          <span class="tempo" id="tempo-saida">0:00 / 0:00</span>
+          <div class="espacador"></div>
+          <button class="botao pequeno" id="btn-baixar-wav-voz" disabled>Baixar WAV</button>
+          <button class="botao pequeno" id="btn-baixar-mp3-voz" disabled>Baixar MP3</button>
+          <button class="botao pequeno" id="btn-salvar-audio-voz" disabled>Salvar no app</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== VOZES ===================== -->
+<section class="painel" id="painel-vozes" role="tabpanel" aria-labelledby="aba-vozes" hidden>
+  <div class="colunas">
+    <div class="coluna-principal">
+      <div class="caixa">
+        <h2>Modelos de voz offline</h2>
+        <p class="dica">
+          Os modelos ficam guardados neste aparelho. Depois de baixar uma vez, o
+          app gera voz sem internet.
+        </p>
+        <div id="lista-modelos" class="lista-modelos"></div>
+        <div class="linha">
+          <button class="botao pequeno perigo" id="btn-limpar-modelos">Apagar todos os modelos</button>
+          <span class="dica" id="espaco-usado"></span>
+        </div>
+      </div>
+
+      <div class="caixa">
+        <h2>Banco de vozes</h2>
+        <p class="dica">
+          Todas saem do mesmo modelo neural, alteradas por processamento de sinal.
+          Clique para ouvir uma frase de teste.
+        </p>
+        <div id="lista-vozes-detalhe" class="lista-vozes"></div>
+      </div>
+
+      <div class="caixa">
+        <h2>Meus áudios</h2>
+        <div id="lista-audios" class="lista-audios"><p class="dica">Nada salvo ainda.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== AJUSTES ===================== -->
+<section class="painel" id="painel-ajustes" role="tabpanel" aria-labelledby="aba-ajustes" hidden>
+  <div class="colunas">
+    <div class="coluna-principal">
+
+      <div class="caixa">
+        <h2>Dicionário de pronúncia</h2>
+        <p class="dica">
+          Para nomes próprios, marcas e siglas que o motor lê errado. Escreva do
+          jeito que se fala: “Xiaomi” → “Chaomi”.
+        </p>
+        <div id="lista-dicionario"></div>
+        <div class="linha">
+          <input type="text" id="dic-de" placeholder="Escrito assim">
+          <input type="text" id="dic-para" placeholder="Falar assim">
+          <button class="botao pequeno" id="btn-add-dic">Adicionar</button>
+        </div>
+      </div>
+
+      <div class="caixa">
+        <h2>Texto</h2>
+        <label class="alternar">
+          <input type="checkbox" id="normalizar-texto" checked>
+          <span>Ler números, datas, horas e valores por extenso</span>
+        </label>
+        <label class="alternar">
+          <input type="checkbox" id="soletrar-siglas" checked>
+          <span>Soletrar siglas em caixa alta (CPF → cê pê éfe)</span>
+        </label>
+      </div>
+
+      <div class="caixa">
+        <h2>Motor na nuvem (opcional)</h2>
+        <p class="dica">
+          O app funciona inteiro sem isto. A nuvem serve para dois casos que o
+          modelo offline não cobre: voz realmente humana e clonagem de voz —
+          inclusive de um falante nordestino de verdade.
+        </p>
+        <p class="aviso">
+          A chave fica guardada só neste navegador e vai direto para a ElevenLabs.
+          Ainda assim, chave em navegador é chave exposta: use uma com permissão
+          restrita e apague quando não precisar mais.
+        </p>
+        <label class="campo">
+          <span>Chave da API ElevenLabs</span>
+          <input type="password" id="chave-nuvem" placeholder="sk_...">
+        </label>
+        <div class="acoes-linha">
+          <button class="botao pequeno" id="btn-verificar-chave">Verificar e listar vozes</button>
+          <button class="botao pequeno perigo" id="btn-apagar-chave">Apagar chave</button>
+        </div>
+        <p class="dica" id="status-nuvem"></p>
+        <label class="campo">
+          <span>Voz da nuvem</span>
+          <select id="voz-nuvem"><option value="">— nenhuma —</option></select>
+        </label>
+        <label class="campo">
+          <span>Modelo</span>
+          <select id="modelo-nuvem"></select>
+        </label>
+        <h3>Clonar uma voz</h3>
+        <p class="dica">
+          Envie de 1 a 5 minutos de fala limpa, sem música nem ruído. Só clone a
+          voz de alguém com autorização de quem falou.
+        </p>
+        <div class="linha">
+          <input type="text" id="nome-clone" placeholder="Nome da voz">
+          <label class="botao arquivo pequeno">
+            Escolher áudios
+            <input type="file" id="arquivos-clone" accept="audio/*" multiple hidden>
+          </label>
+          <button class="botao pequeno" id="btn-clonar">Clonar</button>
+        </div>
+        <p class="dica" id="status-clone"></p>
+      </div>
+
+      <div class="caixa">
+        <h2>Aparência</h2>
+        <label class="campo">
+          <span>Tema</span>
+          <select id="tema">
+            <option value="escuro">Escuro</option>
+            <option value="claro">Claro</option>
+            <option value="sistema">Seguir o sistema</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="caixa">
+        <h2>Sobre</h2>
+        <p class="dica" id="sobre-texto"></p>
+        <div class="acoes-linha">
+          <button class="botao pequeno" id="btn-exportar-config">Exportar ajustes</button>
+          <label class="botao arquivo pequeno">
+            Importar ajustes
+            <input type="file" id="importar-config" accept="application/json" hidden>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="avisos" id="avisos" role="status" aria-live="polite"></div>
+
+<script src="vendor/lame.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

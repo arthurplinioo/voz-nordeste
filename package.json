@@ -1,0 +1,17 @@
+{
+  "name": "voz-nordeste",
+  "version": "1.0.0",
+  "description": "Estúdio de voz com IA no navegador: texto→fala e voz→voz, com sotaque nordestino simulado, controle de pausas, velocidade, tom e timbre.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bundle": "esbuild src-worker/piper-worker.src.js --bundle --format=iife --minify --external:fs --external:path --outfile=js/piper-worker.bundle.js",
+    "icones": "node ferramentas/gerar-icones.mjs",
+    "test": "node testes/teste-sotaque.mjs && node testes/teste-texto.mjs && node testes/teste-dsp.mjs && node testes/teste-audio.mjs",
+    "start": "node ferramentas/servidor.mjs"
+  },
+  "devDependencies": {
+    "@diffusionstudio/vits-web": "^1.0.3",
+    "esbuild": "^0.28.2"
+  }
+}
