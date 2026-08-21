@@ -125,6 +125,14 @@ function soletrar(sigla) {
     .join(' ');
 }
 
+/** "123.456.789-00" -> "um dois três, quatro cinco seis, ...". */
+function soletrarDigitos(txt) {
+  const partes = String(txt).split(/[^\d]+/).filter(Boolean);
+  return partes
+    .map((grupo) => grupo.split('').map((d) => UNIDADES[+d]).join(' '))
+    .join(', ');
+}
+
 /**
  * Reescreve números, moedas, datas, horas, siglas e abreviações por extenso.
  * Trechos entre [colchetes] são preservados (são marcações do app).
@@ -146,6 +154,14 @@ export function normalizar(texto, opcoes) {
     if (centavos) s += ' e ' + numeroPorExtenso(centavos) + (centavos === 1 ? ' centavo' : ' centavos');
     return s;
   });
+
+  // Documentos e telefones. Precisa vir antes de tudo: sem esta regra,
+  // "123.456.789-00" era lido como "cento e vinte e três milhões...".
+  t = t.replace(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g, (m) => soletrarDigitos(m));            // CPF
+  t = t.replace(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g, (m) => soletrarDigitos(m));     // CNPJ
+  t = t.replace(/\b\d{5}-\d{3}\b/g, (m) => soletrarDigitos(m));                           // CEP
+  t = t.replace(/\(\s*\d{2}\s*\)\s*9?\d{4}[-\s]?\d{4}\b/g, (m) => soletrarDigitos(m));    // telefone com DDD
+  t = t.replace(/\b9?\d{4}-\d{4}\b/g, (m) => soletrarDigitos(m));                         // telefone sem DDD
 
   // porcentagem
   t = t.replace(/(\d+(?:,\d+)?)\s*%/g, (_m, n) => {
@@ -178,18 +194,20 @@ export function normalizar(texto, opcoes) {
     return diaTxt + ' de ' + MESES[mi] + ' de ' + numeroPorExtenso(ano);
   });
 
-  // ordinal: 1º, 2ª, 3o
-  t = t.replace(/\b(\d+)\s*([ºª°])/g, (_m, n, marca) =>
-    ordinalPorExtenso(parseInt(n, 10), marca === 'ª')
-  );
-
-  // unidades de medida coladas no número
-  t = t.replace(/\b(\d+(?:,\d+)?)\s*(km\/h|km|cm|mm|kg|mg|ml|mb|gb|kb|[°º]c|min)\b/gi, (_m, n, un) => {
-    const chave = un.toLowerCase();
+  // Unidades de medida. Precisa vir ANTES do ordinal: a regra de ordinal casa
+  // o "°" de "30°C" e devolvia "trigésimoC", deixando as entradas de grau do
+  // mapa de unidades inalcançáveis.
+  t = t.replace(/\b(\d+(?:,\d+)?)\s*(km\/h|km|cm|mm|kg|mg|ml|mb|gb|kb|[°º]\s*[cC]|min)\b/g, (_m, n, un) => {
+    const chave = un.toLowerCase().replace(/\s+/g, '');
     const nome = UNIDADES_MEDIDA.get(chave);
     if (!nome) return _m;
     return lerDecimal(n) + ' ' + nome;
   });
+
+  // ordinal: 1º, 2ª, 3o
+  t = t.replace(/\b(\d+)\s*([ºª°])/g, (_m, n, marca) =>
+    ordinalPorExtenso(parseInt(n, 10), marca === 'ª')
+  );
 
   // abreviações
   t = t.replace(/\b([A-Za-zÀ-ÿ]{1,5}\.º?|nº)/g, (m) => {
@@ -198,8 +216,10 @@ export function normalizar(texto, opcoes) {
   });
 
   // siglas em caixa alta (3+ letras) que não se leem como palavra
+  // Só solétra sequências sem acento: "ATENÇÃO" caía no ramo genérico e saía
+  // como "á tê é êne ç ãO" — nem soletrado, nem palavra.
   if (o.soletrarSiglas !== false && !predominaCaixaAlta(t)) {
-    t = t.replace(/\b([A-ZÀ-Ý]{2,6})\b/g, (m) => (SIGLAS_FALADAS.has(m) ? m : soletrar(m)));
+    t = t.replace(/\b([A-Z]{2,6})\b/g, (m) => (SIGLAS_FALADAS.has(m) ? m : soletrar(m)));
   }
 
   // números soltos (inteiros e decimais)
@@ -220,14 +240,21 @@ export function normalizar(texto, opcoes) {
 
 /**
  * Um texto escrito todo em maiúsculas não é uma sigla — soletrar tudo ali
- * deixaria a fala ininteligível. Acima de 40% de palavras em caixa alta,
- * desligamos a soletração.
+ * deixaria a fala ininteligível ("BOM DIA" virava "bê ó ême dê i á").
+ *
+ * Dois gatilhos, porque um só não dava conta. Se TODAS as palavras estão em
+ * caixa alta, é um título e a soletração sai — vale mesmo em texto de duas
+ * palavras. Acima disso, a proporção de 40% só é confiável com texto
+ * suficiente, senão "meu CPF" (metade em caixa alta) desligaria a soletração
+ * justamente no caso em que ela é desejada.
  */
 function predominaCaixaAlta(t) {
   const palavras = t.match(/\b[\p{L}]{2,}\b/gu) || [];
-  if (palavras.length < 4) return false;
-  const altas = palavras.filter((p) => p === p.toUpperCase() && p !== p.toLowerCase()).length;
-  return altas / palavras.length > 0.4;
+  if (palavras.length < 2) return false;
+  const ehAlta = (p) => p === p.toUpperCase() && p !== p.toLowerCase();
+  const altas = palavras.filter(ehAlta).length;
+  if (altas === palavras.length) return true;
+  return palavras.length >= 4 && altas / palavras.length > 0.4;
 }
 
 function lerDecimal(txt) {
@@ -254,7 +281,7 @@ export const AJUDA_MARCACAO = [
   { marca: '[pausa]', efeito: 'pausa média (600 ms)' },
   { marca: '[pausa 300]', efeito: 'pausa de 300 milissegundos' },
   { marca: '[pausa 2s]', efeito: 'pausa de 2 segundos' },
-  { marca: '*assim*', efeito: 'ênfase: mais devagar e mais alto' },
+  { marca: '*assim*', efeito: 'ênfase: o trecho sai mais alto' },
 ];
 
 const RE_PAUSA = /\[\s*pausa(?:\s+(\d+(?:[.,]\d+)?)\s*(ms|s)?)?\s*\]/gi;
@@ -278,6 +305,41 @@ export function limparMarcacao(texto) {
 
 const ABREV_SEM_QUEBRA = /\b(sr|sra|dr|dra|prof|profa|etc|ex|obs|pág|av|ltda|cia|jr|vs|ed|apto)\.$/i;
 
+/** Marcador interno de quebra: não aparece em texto digitado. */
+const MARCA = '⁣QUEBRA⁣';
+
+/**
+ * Separa em frases devolvendo, junto de cada uma, o espaço que a seguia.
+ *
+ * Existe por dois motivos. O primeiro é compatibilidade: a versão anterior
+ * usava lookbehind (`(?<=[.!?…])`), que o Safari só passou a entender na 16.4 —
+ * antes disso o módulo nem carregava, e o app abria em tela branca sem
+ * mensagem nenhuma. O segundo é que guardar o separador permite recompor o
+ * texto exatamente como estava, inclusive as quebras de parágrafo: juntar tudo
+ * com um espaço simples apagava os `\n\n` e a pausa de parágrafo sumia.
+ *
+ * Vale a garantia: `separarFrases(t).map(f => f.texto + f.separador).join('')`
+ * devolve `t` sem perder um caractere.
+ *
+ * @returns {Array<{texto:string, separador:string}>}
+ */
+export function separarFrases(t) {
+  const frases = [];
+  const FINAIS = '.!?…';
+  let atual = '';
+  for (let i = 0; i < t.length; i++) {
+    atual += t[i];
+    if (!FINAIS.includes(t[i])) continue;
+    while (i + 1 < t.length && FINAIS.includes(t[i + 1])) atual += t[++i];
+    let separador = '';
+    while (i + 1 < t.length && /\s/.test(t[i + 1])) separador += t[++i];
+    frases.push({ texto: atual, separador });
+    atual = '';
+  }
+  if (atual) frases.push({ texto: atual, separador: '' });
+  return frases;
+}
+
 /**
  * Quebra o texto em segmentos faláveis. Cada segmento vira uma chamada ao motor
  * de voz; a pausa vai como silêncio inserido entre os áudios.
@@ -292,7 +354,11 @@ export function segmentar(texto, opcoes) {
   const maxChars = num(o.maxChars, 320);
 
   const segmentos = [];
-  const paragrafos = texto.split(/\n\s*\n+/);
+  // "*Frase inteira.*" tem o asterisco de fechamento depois do ponto, então a
+  // divisão por frase separava o par e a ênfase se perdia. Trazer a pontuação
+  // para fora do par resolve sem mudar o que o usuário escreveu.
+  const comEnfaseNormalizada = texto.replace(/\*([^*\n]*?)([.!?…]+)\*/g, '*$1*$2');
+  const paragrafos = comEnfaseNormalizada.split(/\n\s*\n+/);
 
   paragrafos.forEach((paragrafo, iPar) => {
     const linhas = paragrafo.split(/\n+/).join(' ').trim();
@@ -329,12 +395,19 @@ export function segmentar(texto, opcoes) {
 
           const bruto = parte.trim();
           if (!bruto) return;
-          const enfase = /^\*.*\*$/.test(bruto);
-          segmentos.push({
-            texto: bruto.replace(/\*/g, '').trim(),
-            pausaMs: Math.max(0, pausa),
-            enfase,
-            indice: segmentos.length,
+          // A ênfase vira segmento próprio. Antes exigia-se que o trecho INTEIRO
+          // estivesse entre asteriscos, então o uso documentado — marcar uma
+          // palavra no meio da frase — não fazia nada: os asteriscos eram
+          // removidos em silêncio.
+          const trechosEnfase = dividirEnfase(bruto);
+          trechosEnfase.forEach((trecho, iTrecho) => {
+            const ultimoTrecho = iTrecho === trechosEnfase.length - 1;
+            segmentos.push({
+              texto: trecho.texto,
+              pausaMs: ultimoTrecho ? Math.max(0, pausa) : 0,
+              enfase: trecho.enfase,
+              indice: segmentos.length,
+            });
           });
         });
       });
@@ -342,6 +415,42 @@ export function segmentar(texto, opcoes) {
   });
 
   return segmentos.filter((s) => s.texto.length > 0);
+}
+
+/**
+ * Separa os trechos marcados com *asteriscos* do resto da frase.
+ *
+ * @returns {Array<{texto:string, enfase:boolean}>}
+ */
+export function dividirEnfase(txt) {
+  if (!txt.includes('*')) return [{ texto: txt, enfase: false }];
+  const partes = [];
+  const re = /\*([^*]+)\*/g;
+  let ultimo = 0;
+  let m;
+  while ((m = re.exec(txt)) !== null) {
+    const antes = txt.slice(ultimo, m.index).trim();
+    if (antes) partes.push({ texto: antes, enfase: false });
+    const dentro = m[1].trim();
+    if (dentro) partes.push({ texto: dentro, enfase: true });
+    ultimo = m.index + m[0].length;
+  }
+  const resto = txt.slice(ultimo).trim();
+  if (resto) {
+    // sobra só de pontuação não vira segmento próprio (geraria um áudio mudo
+    // com uma respiração no meio); cola na parte anterior
+    if (partes.length && /^[^\p{L}\p{N}]+$/u.test(resto)) {
+      partes[partes.length - 1].texto += resto;
+    } else {
+      partes.push({ texto: resto, enfase: false });
+    }
+  }
+  // asterisco solto, sem par: não é marcação, é pontuação do usuário
+  if (!partes.length) {
+    const limpo = txt.replace(/\*/g, '').trim();
+    return limpo ? [{ texto: limpo, enfase: false }] : [];
+  }
+  return partes;
 }
 
 function num(v, padrao) {
@@ -352,7 +461,7 @@ function num(v, padrao) {
 /** Divide em frases respeitando abreviações e reticências. */
 export function dividirEmFrases(texto, quebrarVirgula) {
   const frases = [];
-  const bruto = texto.split(/(?<=[.!?…])\s+/);
+  const bruto = separarFrases(texto).map((x) => x.texto);
   for (const f of bruto) {
     if (!f.trim()) continue;
     // "Dr. Silva" não é fim de frase: cola no próximo pedaço
@@ -361,7 +470,7 @@ export function dividirEmFrases(texto, quebrarVirgula) {
       continue;
     }
     if (quebrarVirgula) {
-      const sub = f.split(/(?<=,)\s+/);
+      const sub = f.replace(/,\s+/g, ',' + MARCA).split(MARCA);
       sub.forEach((s, i) => {
         if (!s.trim()) return;
         frases.push({ texto: s, tipo: i < sub.length - 1 ? 'virgula' : 'frase' });
@@ -382,7 +491,11 @@ export function quebrarPorTamanho(texto, max) {
   if (t.length <= max) return [t];
   const partes = [];
   let atual = '';
-  const pedacos = t.split(/(?<=[,;:])\s+|\s+(?=(?:e|mas|porém|então|que|porque|quando)\s)/i);
+  // Sem lookbehind, pelo mesmo motivo explicado em separarFrases.
+  const pedacos = t
+    .replace(/([,;:])\s+/g, '$1' + MARCA)
+    .replace(/\s+(?=(?:e|mas|porém|então|que|porque|quando)\s)/gi, MARCA)
+    .split(MARCA);
   for (const p of pedacos) {
     if ((atual + ' ' + p).trim().length <= max) {
       atual = (atual + ' ' + p).trim();

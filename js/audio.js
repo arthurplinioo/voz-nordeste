@@ -31,7 +31,19 @@ export function lerWav(arrayBuffer) {
     }
     pos = corpo + tam + (tam % 2); // blocos têm padding par
   }
-  if (!dados) throw new Error('WAV sem bloco de dados.');
+  if (!dados) throw new Error('Arquivo WAV inválido: não tem bloco de dados.');
+  // Sem estas checagens um cabeçalho corrompido devolvia `canais: []` sem erro
+  // nenhum, e o estouro só aparecia lá adiante, como "cannot read length of
+  // undefined" no meio da geração.
+  if (!(canais >= 1 && canais <= 32)) {
+    throw new Error('Arquivo WAV inválido: número de canais fora do esperado (' + canais + ').');
+  }
+  if (![8, 16, 24, 32].includes(bits)) {
+    throw new Error('Arquivo WAV inválido: ' + bits + ' bits por amostra não é suportado.');
+  }
+  if (!(taxa >= 1000 && taxa <= 384000)) {
+    throw new Error('Arquivo WAV inválido: taxa de amostragem de ' + taxa + ' Hz.');
+  }
 
   const quadros = Math.floor(dados.tam / (canais * (bits / 8)));
   const saida = [];
@@ -58,6 +70,9 @@ export function lerWav(arrayBuffer) {
 
 /** Escreve canais Float32 num WAV PCM 16 bits. */
 export function escreverWav(canais, taxa) {
+  if (!canais || !canais.length || !canais[0]) {
+    throw new Error('Não há áudio para exportar.');
+  }
   const nCanais = canais.length;
   const quadros = canais[0].length;
   const bytesDados = quadros * nCanais * 2;

@@ -20,7 +20,13 @@ let ajustes = bd.lerAjustes();
 let dicionario = bd.lerDicionario();
 let modelosBaixados = new Set();
 let vozesNuvem = [];
-let cancelador = null;
+// Um cancelador por fluxo. Com um só, compartilhado, o botão Cancelar da aba
+// Texto derrubava o trabalho que estava rodando na aba Voz, e vice-versa.
+let canceladorTexto = null;
+let canceladorVoz = null;
+
+/** Teto de texto por geração: acima disso o navegador não aguenta. */
+const MAX_CARACTERES = 20000;
 
 let resultadoTexto = null; // {canais, taxa}
 let entradaVoz = null;     // {canais, taxa, blob}
@@ -31,11 +37,17 @@ let reconhecimento = null;
 // ---------------------------------------------------------------------------
 // recados
 
+const MAX_RECADOS = 4;
+
 function recado(msg, tipo, segundos) {
+  // Erro em laço enchia a tela de toasts; mantemos só os últimos.
+  const caixa = tipo === 'erro' ? $('avisos-urgentes') : $('avisos');
+  while (caixa.children.length >= MAX_RECADOS) caixa.firstElementChild.remove();
+
   const div = document.createElement('div');
   div.className = 'recado' + (tipo ? ' ' + tipo : '');
   div.textContent = msg;
-  $('avisos').appendChild(div);
+  caixa.appendChild(div);
   setTimeout(() => {
     div.style.opacity = '0';
     setTimeout(() => div.remove(), 250);
@@ -76,6 +88,24 @@ class Tocador {
       const r = this.canvas.getBoundingClientRect();
       this.buscar(((e.clientX - r.left) / r.width) * this.buffer.duration);
     });
+    // Sem isto não havia como posicionar a reprodução sem mouse.
+    this.canvas.addEventListener('keydown', (e) => {
+      if (!this.buffer) return;
+      const d = this.buffer.duration;
+      const teclas = {
+        ArrowRight: () => this.buscar(this.posicao() + 5),
+        ArrowLeft: () => this.buscar(this.posicao() - 5),
+        PageUp: () => this.buscar(this.posicao() + 30),
+        PageDown: () => this.buscar(this.posicao() - 30),
+        Home: () => this.buscar(0),
+        End: () => this.buscar(d - 0.1),
+        ' ': () => this.alternar(),
+      };
+      const fn = teclas[e.key];
+      if (!fn) return;
+      e.preventDefault();
+      fn();
+    });
     window.addEventListener('resize', () => this.desenhar());
   }
 
@@ -109,6 +139,17 @@ class Tocador {
   tocar() {
     if (!this.buffer || this.tocando) return;
     const ctx = contexto();
+    if (ctx.state !== 'running') {
+      // iPhone: sem gesto do usuário o contexto fica suspenso e a fonte nunca
+      // toca. Sem esta saída, `tocando` ficava true para sempre, o botão
+      // mostrava pausa, o tempo congelava e o requestAnimationFrame redesenhava
+      // o canvas a 60 fps até a página ser recarregada.
+      ctx.resume();
+      if (ctx.state !== 'running') {
+        recado('Toque no botão de tocar para liberar o áudio neste navegador.', null, 5);
+        return;
+      }
+    }
     const fonte = ctx.createBufferSource();
     fonte.buffer = this.buffer;
     fonte.connect(ctx.destination);
@@ -118,7 +159,7 @@ class Tocador {
       this.tocando = false;
       this.deslocamento = 0;
       this.fonte = null;
-      this.botao.textContent = '▶';
+      this.marcarBotao(false);
       this.desenhar();
       this.atualizarTempo();
       cancelAnimationFrame(this.animacao);
@@ -127,7 +168,7 @@ class Tocador {
     this.fonte = fonte;
     this.inicioCtx = ctx.currentTime;
     this.tocando = true;
-    this.botao.textContent = '❚❚';
+    this.marcarBotao(true);
     this.animar();
   }
 
@@ -136,7 +177,7 @@ class Tocador {
     this.deslocamento = this.posicao();
     this.pararFonte();
     this.tocando = false;
-    this.botao.textContent = '▶';
+    this.marcarBotao(false);
     cancelAnimationFrame(this.animacao);
     this.desenhar();
     this.atualizarTempo();
@@ -146,7 +187,7 @@ class Tocador {
     this.pararFonte();
     this.tocando = false;
     this.deslocamento = 0;
-    if (this.botao) this.botao.textContent = '▶';
+    if (this.botao) this.marcarBotao(false);
     cancelAnimationFrame(this.animacao);
   }
 
@@ -178,14 +219,29 @@ class Tocador {
     const passo = () => {
       this.desenhar();
       this.atualizarTempo();
-      if (this.tocando) this.animacao = requestAnimationFrame(passo);
+      // trava de segurança: se o contexto parar de andar, não fica redesenhando
+      if (this.tocando && contexto().state === 'running') {
+        this.animacao = requestAnimationFrame(passo);
+      }
     };
     passo();
+  }
+
+  /** Mantém o rótulo do leitor de tela em sincronia com o ícone. */
+  marcarBotao(tocando) {
+    this.botao.textContent = tocando ? '❚❚' : '▶';
+    this.botao.setAttribute('aria-label', tocando ? 'Pausar' : 'Tocar');
+    this.botao.setAttribute('aria-pressed', String(!!tocando));
   }
 
   desenhar() {
     const fracao = this.buffer ? this.posicao() / this.buffer.duration : 0;
     audio.desenharOnda(this.canvas, this.canais, corAcento(), fracao);
+    this.canvas.setAttribute('aria-valuenow', String(Math.round(fracao * 100)));
+    this.canvas.setAttribute(
+      'aria-valuetext',
+      this.buffer ? mmss(this.posicao()) + ' de ' + mmss(this.buffer.duration) : 'sem áudio'
+    );
   }
 
   atualizarTempo() {
@@ -217,15 +273,33 @@ function ligarAbas() {
     ['aba-vozes', 'painel-vozes'],
     ['aba-ajustes', 'painel-ajustes'],
   ];
+  // Navegação por setas, como manda o padrão de tablist: só a aba ativa fica
+  // no caminho do Tab, e as setas passeiam entre elas.
+  const focarAba = (i) => {
+    const alvo = pares[(i + pares.length) % pares.length][0];
+    $(alvo).focus();
+    $(alvo).click();
+  };
+
   for (const [idAba, idPainel] of pares) {
+    $(idAba).addEventListener('keydown', (e) => {
+      const i = pares.findIndex(([a]) => a === idAba);
+      if (e.key === 'ArrowRight') { e.preventDefault(); focarAba(i + 1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); focarAba(i - 1); }
+      else if (e.key === 'Home') { e.preventDefault(); focarAba(0); }
+      else if (e.key === 'End') { e.preventDefault(); focarAba(pares.length - 1); }
+    });
+
     $(idAba).addEventListener('click', () => {
       for (const [a, p] of pares) {
         const ativo = a === idAba;
         $(a).classList.toggle('ativa', ativo);
         $(a).setAttribute('aria-selected', String(ativo));
+        $(a).tabIndex = ativo ? 0 : -1;
         $(p).classList.toggle('ativo', ativo);
         $(p).hidden = !ativo;
       }
+      pararAmostra();
       if (idPainel === 'painel-vozes') atualizarPainelVozes();
       // os canvas ficam com largura 0 enquanto escondidos
       requestAnimationFrame(() => {
@@ -267,7 +341,11 @@ function montarGradeVozes() {
     grade.appendChild(b);
   }
   const atual = acharVoz(ajustes.vozId);
-  $('dica-voz').textContent = atual.descricao;
+  // Avisar do download ANTES do clique em Gerar: a mensagem que aparecia
+  // durante já era tarde para quem está no 4G.
+  const precisaBaixar = ajustes.motor !== 'nuvem' && !modelosBaixados.has(atual.base);
+  $('dica-voz').textContent = atual.descricao +
+    (precisaBaixar ? ' — o modelo desta voz ainda não está no aparelho: o primeiro áudio baixa cerca de 60 MB.' : '');
 }
 
 function sugerirSotaque(voz) {
@@ -284,7 +362,10 @@ function sugerirSotaque(voz) {
 
 const NOMES_NIVEL = ['Desligado', 'Leve', 'Médio', 'Forte'];
 function rotularSotaque() {
-  $('rotulo-sotaque').textContent = NOMES_NIVEL[ajustes.sotaqueNivel] || 'Médio';
+  const nome = NOMES_NIVEL[ajustes.sotaqueNivel] || 'Médio';
+  $('rotulo-sotaque').textContent = nome;
+  // o leitor de tela anunciaria só "2" sem isto
+  $('sotaque-nivel').setAttribute('aria-valuetext', nome);
 }
 
 let temporizadorPrevia = 0;
@@ -329,8 +410,15 @@ function atualizarPrevia() {
     plano.segmentos.length + ' trecho' + (plano.segmentos.length === 1 ? '' : 's') +
     (mudou.length ? ' · ' + mudou.length + ' palavra' + (mudou.length === 1 ? '' : 's') + ' com sotaque' : '');
 
-  const ms = texto.estimarDuracao(plano.segmentos, ajustes.velocidade);
-  $('estimativa').textContent = 'cerca de ' + texto.formatarDuracao(ms) + ' de áudio';
+  // a velocidade efetiva é a do controle multiplicada pela da voz escolhida;
+  // sem isso o Narrador (0,88x) saía 12% fora da estimativa
+  const ms = texto.estimarDuracao(plano.segmentos, ajustes.velocidade * (plano.voz.velocidade || 1));
+  const acima = bruto.length > MAX_CARACTERES;
+  $('estimativa').textContent = acima
+    ? 'Acima do limite de ' + MAX_CARACTERES.toLocaleString('pt-BR') + ' caracteres por geração'
+    : 'cerca de ' + texto.formatarDuracao(ms) + ' de áudio';
+  $('estimativa').classList.toggle('alerta', acima);
+  $('contador').classList.toggle('alerta', acima);
 }
 
 /** Garante que o modelo da voz escolhida está no aparelho. */
@@ -354,9 +442,14 @@ async function garantirModelo(modelo, aoProgresso) {
 
 function mostrarProgresso(idBarra, idPreenchida, idRotulo) {
   return (fracao, rotulo) => {
-    $(idBarra).classList.remove('escondido');
-    $(idPreenchida).style.width = Math.round(fracao * 100) + '%';
-    $(idRotulo).textContent = (rotulo || '') + ' · ' + Math.round(fracao * 100) + '%';
+    const pct = Math.round(fracao * 100);
+    const barra = $(idBarra);
+    barra.classList.remove('escondido');
+    $(idPreenchida).style.width = pct + '%';
+    $(idRotulo).textContent = (rotulo || '') + ' · ' + pct + '%';
+    // sem isto, uma geração de 20 minutos não tem nenhuma indicação sonora
+    barra.setAttribute('aria-valuenow', String(pct));
+    barra.setAttribute('aria-valuetext', (rotulo || '') + ', ' + pct + ' por cento');
   };
 }
 
@@ -370,8 +463,23 @@ async function gerarTexto(textoBruto, ehAmostra) {
     recado('Escreva alguma coisa primeiro.', 'erro');
     return;
   }
+  if (bruto.length > MAX_CARACTERES) {
+    recado(
+      'O texto tem ' + bruto.length.toLocaleString('pt-BR') + ' caracteres. O limite por ' +
+      'geração é ' + MAX_CARACTERES.toLocaleString('pt-BR') + ' — acima disso o navegador fica ' +
+      'sem memória. Divida em partes e gere uma de cada vez.',
+      'erro', 10
+    );
+    return;
+  }
 
-  cancelador = sintese.novoCancelador();
+  // O AudioContext precisa nascer dentro do gesto do usuário. Criado lá na
+  // frente, depois do download e da inferência, o Safari do iPhone o deixa
+  // suspenso para sempre e a reprodução nunca começa.
+  contexto();
+
+  const cancelador = sintese.novoCancelador();
+  canceladorTexto = cancelador;
   $('btn-gerar').disabled = true;
   $('btn-amostra').disabled = true;
   $('btn-cancelar').classList.remove('escondido');
@@ -402,7 +510,7 @@ async function gerarTexto(textoBruto, ehAmostra) {
     $('btn-gerar').disabled = false;
     $('btn-amostra').disabled = false;
     $('btn-cancelar').classList.add('escondido');
-    cancelador = null;
+    if (canceladorTexto === cancelador) canceladorTexto = null;
   }
 }
 
@@ -412,18 +520,42 @@ function habilitarExportacaoTexto(ligado) {
   $('btn-salvar-audio').disabled = !ligado;
 }
 
+function montarAjudaMarcacao() {
+  const lista = $('lista-marcacao');
+  lista.innerHTML = '';
+  for (const item of texto.AJUDA_MARCACAO) {
+    const dt = document.createElement('dt');
+    dt.textContent = item.marca;
+    const dd = document.createElement('dd');
+    dd.textContent = item.efeito;
+    lista.appendChild(dt);
+    lista.appendChild(dd);
+  }
+}
+
 function ligarAbaTexto() {
   const campo = $('entrada-texto');
+  montarAjudaMarcacao();
+  campo.maxLength = MAX_CARACTERES * 2; // trava dura; o aviso vem bem antes
 
-  campo.addEventListener('input', agendarPrevia);
+  // Um F5 acidental apagava tudo que o usuário tinha escrito.
+  const guardado = bd.lerRascunho();
+  if (guardado) campo.value = guardado;
+
+  campo.addEventListener('input', () => {
+    agendarPrevia();
+    agendarRascunho(campo.value);
+  });
 
   $('btn-exemplo').addEventListener('click', () => {
     campo.value = EXEMPLO;
+    agendarRascunho(campo.value);
     atualizarPrevia();
   });
 
   $('btn-limpar').addEventListener('click', () => {
     campo.value = '';
+    agendarRascunho('');
     atualizarPrevia();
     campo.focus();
   });
@@ -495,9 +627,11 @@ function ligarAbaTexto() {
 
   $('btn-gerar').addEventListener('click', () => gerarTexto());
   $('btn-amostra').addEventListener('click', () => gerarTexto(sintese.FRASE_AMOSTRA, true));
+  // Não derruba o worker: com a fila serializada em piper.js, matá-lo levaria
+  // junto o trabalho da outra aba. A geração para depois do trecho corrente.
   $('btn-cancelar').addEventListener('click', () => {
-    if (cancelador) cancelador.cancelar();
-    piper.reciclar();
+    if (canceladorTexto) canceladorTexto.cancelar();
+    $('barra-rotulo').textContent = 'Parando depois deste trecho…';
   });
 
   $('btn-baixar-wav').addEventListener('click', () => baixarResultado(resultadoTexto, 'wav'));
@@ -649,8 +783,13 @@ async function transformarVoz() {
 
   if (!entradaVoz) { recado('Grave ou carregue um áudio primeiro.', 'erro'); return; }
 
+  contexto(); // ainda dentro do clique, por causa do Safari do iPhone
   const avisar = mostrarProgresso('barra-progresso-voz', 'barra-preenchida-voz', 'barra-rotulo-voz');
   $('btn-transformar').disabled = true;
+  $('btn-cancelar-voz').classList.remove('escondido');
+  if (sintese.processamentoBloqueiaTela()) {
+    recado('Este navegador processa na tela principal: ela vai travar por alguns segundos.', null, 6);
+  }
   avisar(0, 'Processando');
 
   try {
@@ -683,13 +822,21 @@ async function transformarVoz() {
   } finally {
     esconderProgresso('barra-progresso-voz');
     $('btn-transformar').disabled = false;
+    $('btn-cancelar-voz').classList.add('escondido');
   }
 }
 
 async function gerarRefalado(txt) {
+  if (txt.length > MAX_CARACTERES) {
+    recado('Texto longo demais para uma geração só. Divida em partes.', 'erro', 8);
+    return;
+  }
+  contexto();
   const avisar = mostrarProgresso('barra-progresso-voz', 'barra-preenchida-voz', 'barra-rotulo-voz');
   $('btn-transformar').disabled = true;
-  cancelador = sintese.novoCancelador();
+  $('btn-cancelar-voz').classList.remove('escondido');
+  const cancelador = sintese.novoCancelador();
+  canceladorVoz = cancelador;
   try {
     const comAjustes = Object.assign({}, ajustes, { dicionario, nuvem: dadosNuvem() });
     if (ajustes.motor !== 'nuvem') await garantirModelo(acharVoz(ajustes.vozId).base, avisar);
@@ -701,7 +848,8 @@ async function gerarRefalado(txt) {
   } finally {
     esconderProgresso('barra-progresso-voz');
     $('btn-transformar').disabled = false;
-    cancelador = null;
+    $('btn-cancelar-voz').classList.add('escondido');
+    if (canceladorVoz === cancelador) canceladorVoz = null;
   }
 }
 
@@ -711,7 +859,27 @@ function concluirVoz(canais, taxa) {
   $('btn-baixar-wav-voz').disabled = false;
   $('btn-baixar-mp3-voz').disabled = !globalThis.lamejs;
   $('btn-salvar-audio-voz').disabled = false;
+  $('btn-comparar').disabled = !entradaVoz;
   tocadorSaida.tocar();
+}
+
+/**
+ * Alterna entre o áudio original e o transformado no mesmo ponto do tempo.
+ * É o recurso mais usado de qualquer trocador de voz: sem ele não dá para
+ * julgar se o ajuste ficou bom, só para ouvir o resultado no vácuo.
+ */
+function compararAB() {
+  if (!entradaVoz || !resultadoVoz) return;
+  const ouvindoSaida = tocadorSaida.tocando;
+  const posicao = ouvindoSaida ? tocadorSaida.posicao() : tocadorEntrada.posicao();
+  const de = ouvindoSaida ? tocadorSaida : tocadorEntrada;
+  const para = ouvindoSaida ? tocadorEntrada : tocadorSaida;
+  de.pausar();
+  // as durações podem diferir (velocidade); mantemos a posição relativa
+  const fracao = de.buffer ? posicao / de.buffer.duration : 0;
+  para.buscar(fracao * (para.buffer ? para.buffer.duration : 0));
+  para.tocar();
+  recado(ouvindoSaida ? 'Ouvindo o original (A).' : 'Ouvindo o transformado (B).', null, 2);
 }
 
 function ligarAbaVoz() {
@@ -770,8 +938,6 @@ function ligarAbaVoz() {
     e.target.value = '';
   });
 
-  $('btn-tocar-entrada').addEventListener('click', () => {});
-
   const faixa = (id, chave, rotulo, formatar) => {
     $(id).addEventListener('input', (e) => {
       ajustesVoz[chave] = parseFloat(e.target.value);
@@ -825,8 +991,14 @@ function ligarAbaVoz() {
   });
 
   $('btn-transformar').addEventListener('click', transformarVoz);
-  $('btn-cancelar-voz').addEventListener('click', () => { if (cancelador) cancelador.cancelar(); });
+  $('btn-cancelar-voz').addEventListener('click', () => {
+    if (canceladorVoz) canceladorVoz.cancelar();
+    // O vocoder é um laço síncrono no worker: só derrubando ele para de fato.
+    if (sintese.cancelarProcessamento()) recado('Processamento interrompido.');
+    $('btn-cancelar-voz').classList.add('escondido');
+  });
 
+  $('btn-comparar').addEventListener('click', compararAB);
   $('btn-baixar-wav-voz').addEventListener('click', () => baixarResultado(resultadoVoz, 'wav'));
   $('btn-baixar-mp3-voz').addEventListener('click', () => baixarResultado(resultadoVoz, 'mp3'));
   $('btn-salvar-audio-voz').addEventListener('click', () => salvarNoApp(resultadoVoz, 'Voz transformada'));
@@ -892,6 +1064,22 @@ async function atualizarPainelVozes() {
     ? 'Este app usa ' + bd.formatarBytes(uso.usado) + ' do aparelho.'
     : '';
 
+  const limpar = $('btn-limpar-modelos');
+  limpar.disabled = modelosBaixados.size === 0;
+  limpar.onclick = async () => {
+    if (!confirm('Apagar todos os modelos de voz deste aparelho? Vão precisar ser baixados de novo (~60 MB cada).')) return;
+    limpar.disabled = true;
+    try {
+      await piper.limparTudo();
+      modelosBaixados = new Set();
+      recado('Modelos apagados.', 'ok');
+      atualizarPainelVozes();
+    } catch (e) {
+      contarErro(e);
+      limpar.disabled = false;
+    }
+  };
+
   montarListaVozesDetalhe();
   montarListaAudios();
 }
@@ -909,16 +1097,56 @@ function montarListaVozesDetalhe() {
     item.querySelector('b').textContent = v.nome;
     item.querySelector('.item-texto span').textContent = v.descricao;
     item.querySelector('.selo').textContent = v.genero;
-    item.querySelector('button').addEventListener('click', async () => {
-      ajustes.vozId = v.id;
-      salvar();
-      montarGradeVozes();
-      aplicarAjustesNaTela();
-      recado('Gerando amostra de ' + v.nome + '…');
-      await gerarTexto(sintese.FRASE_AMOSTRA, true);
-    });
+    const botao = item.querySelector('button');
+    botao.addEventListener('click', () => ouvirAmostra(v, botao));
     alvo.appendChild(item);
   }
+}
+
+let fonteAmostra = null;
+
+/**
+ * Toca uma frase curta com a voz escolhida, sem passar pelo player da aba
+ * Texto. Antes esta prévia reusava `gerarTexto`, que sobrescrevia
+ * `resultadoTexto`: quem tinha acabado de gerar cinco minutos de narração vinha
+ * conferir um timbre aqui e, ao voltar, baixava a frase de teste no lugar —
+ * sem nenhum aviso, porque o player nem está visível nesta aba.
+ */
+async function ouvirAmostra(voz, botao) {
+  const rotulo = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Gerando…';
+  contexto();
+  try {
+    if (ajustes.motor !== 'nuvem') await garantirModelo(voz.base);
+    const r = await sintese.gerarFala(
+      sintese.FRASE_AMOSTRA,
+      Object.assign({}, ajustes, { vozId: voz.id, dicionario, nuvem: dadosNuvem() }),
+      {}
+    );
+    pararAmostra();
+    const ctx = contexto();
+    const buf = ctx.createBuffer(r.canais.length, r.canais[0].length, r.taxa);
+    for (let c = 0; c < r.canais.length; c++) buf.copyToChannel(r.canais[c], c);
+    const fonte = ctx.createBufferSource();
+    fonte.buffer = buf;
+    fonte.connect(ctx.destination);
+    fonte.onended = () => { if (fonteAmostra === fonte) fonteAmostra = null; };
+    fonte.start();
+    fonteAmostra = fonte;
+  } catch (e) {
+    contarErro(e);
+  } finally {
+    botao.disabled = false;
+    botao.textContent = rotulo;
+  }
+}
+
+function pararAmostra() {
+  if (!fonteAmostra) return;
+  fonteAmostra.onended = null;
+  try { fonteAmostra.stop(); } catch (e) { /* já parada */ }
+  fonteAmostra = null;
 }
 
 async function montarListaAudios() {
@@ -1210,6 +1438,12 @@ function aplicarTema() {
   }
 }
 
+let temporizadorRascunho = 0;
+function agendarRascunho(txt) {
+  clearTimeout(temporizadorRascunho);
+  temporizadorRascunho = setTimeout(() => bd.salvarRascunho(txt), 600);
+}
+
 let temporizadorSalvar = 0;
 function salvar() {
   clearTimeout(temporizadorSalvar);
@@ -1278,10 +1512,19 @@ function iniciar() {
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    let jaAvisou = false;
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (!e.data || e.data.tipo !== 'nova-versao' || jaAvisou) return;
+      jaAvisou = true;
+      recado('Saiu uma versão nova do app. Recarregue a página para usá-la.', null, 12);
+    });
   }
 
-  // aquece a lista de modelos em segundo plano
-  piper.vozesArmazenadas().then((ids) => { modelosBaixados = new Set(ids); }).catch(() => {});
+  // aquece a lista de modelos em segundo plano, para a dica da voz saber se o
+  // primeiro áudio vai ou não disparar um download
+  piper.vozesArmazenadas()
+    .then((ids) => { modelosBaixados = new Set(ids); montarGradeVozes(); })
+    .catch(() => {});
 }
 
 if (document.readyState === 'loading') {

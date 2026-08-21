@@ -7,8 +7,11 @@
   --fundo-3: #241f1a;
   --borda: #372f27;
   --texto: #f2e9df;
-  --texto-2: #b6a795;
-  --texto-3: #8a7b6b;
+  --texto-2: #c3b5a3;
+  /* --texto-3 é a cor de todos os h2, de todo .dica e dos subtítulos dos
+     cartões, ou seja, da maior parte do texto explicativo. Em #8a7b6b sobre
+     --fundo-2 dava 4,24:1 e falhava o mínimo AA de 4,5:1. */
+  --texto-3: #a2907c;
   --acento: #f0a04b;
   --acento-forte: #ff8f2e;
   --acento-suave: rgba(240, 160, 75, 0.14);
@@ -27,7 +30,7 @@ html[data-tema="claro"] {
   --borda: #e0d5c7;
   --texto: #241f1a;
   --texto-2: #5f5347;
-  --texto-3: #8a7b6b;
+  --texto-3: #6f6153;
   --acento: #c96a12;
   --acento-forte: #a95508;
   --acento-suave: rgba(201, 106, 18, 0.1);
@@ -341,6 +344,14 @@ input[type="range"]::-moz-range-thumb {
 
 .botao.grande { min-height: 46px; padding: 11px 22px; font-size: 15px; }
 .botao.pequeno { min-height: 34px; padding: 6px 11px; font-size: 13px; }
+
+/* Em tela de toque os botões pequenos passam a 44px: baixar, salvar, aplicar
+   preset e apagar usam esta classe, e 34px é alvo pequeno demais para o dedo. */
+@media (pointer: coarse) {
+  .botao.pequeno { min-height: 44px; padding: 10px 14px; }
+  .onda { height: 110px; }
+  .onda.pequena { height: 90px; }
+}
 .botao.perigo { color: var(--vermelho); }
 .botao.perigo:hover:not(:disabled) { border-color: var(--vermelho); background: rgba(226, 105, 79, 0.12); }
 
@@ -509,6 +520,25 @@ input[type="range"]::-moz-range-thumb {
   overflow: auto;
 }
 
+.ajuda {
+  margin-top: 10px;
+  font-size: 12.8px;
+  color: var(--texto-3);
+}
+.ajuda summary { cursor: pointer; }
+.ajuda dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+}
+.ajuda dt {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color: var(--acento);
+  white-space: nowrap;
+}
+.ajuda dd { margin: 0; color: var(--texto-2); }
+
 .mudancas {
   display: flex;
   flex-wrap: wrap;
@@ -598,6 +628,23 @@ input[type="range"]::-moz-range-thumb {
 }
 .recado.erro { border-left-color: var(--vermelho); }
 .recado.ok { border-left-color: var(--verde); }
+
+/* Erros vão para o topo: não disputam espaço com os recados comuns e ficam
+   longe do polegar, que é onde estão os botões de ação. */
+.avisos.urgentes {
+  bottom: auto;
+  top: calc(12px + env(safe-area-inset-top));
+}
+
+.alerta { color: var(--vermelho) !important; font-weight: 600; }
+
+.onda:focus-visible,
+.aba:focus-visible,
+.botao:focus-visible,
+.cartao-voz:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
 
 @keyframes entrar {
   from { opacity: 0; transform: translateY(8px); }

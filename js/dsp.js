@@ -245,8 +245,11 @@ export function esticar(entrada, fatorTempo, fatorFormante, progresso) {
   // junto com o alongamento. Em áudio longo isso é irrelevante, mas em trechos
   // curtos jogava a duração fora — e o pitch shifter depende da razão exata,
   // porque ele estica e reamostra na sequência. Cortamos no tamanho teórico.
+  // `slice` e não `subarray`: o resultado é transferido entre workers, e um
+  // subarray leva junto o buffer inteiro — o áudio chegaria do outro lado com
+  // uma cauda de lixo, sem erro nenhum para denunciar.
   const alvo = Math.max(1, Math.round((entrada.length * Hs) / Ha));
-  return alvo < saida.length ? saida.subarray(0, alvo) : saida;
+  return alvo < saida.length ? saida.slice(0, alvo) : saida;
 }
 
 /** Reamostragem com interpolação cúbica (Catmull-Rom). */

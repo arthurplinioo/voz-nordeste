@@ -61,6 +61,43 @@ teste('arquivo que não é WAV dá erro claro', () => {
   verdade(mensagem.includes('WAV'), 'mensagem: ' + mensagem);
 });
 
+secao('regressões: cabeçalho corrompido');
+
+/** Copia um WAV válido e adultera um campo do cabeçalho. */
+function wavAdulterado(campo, valor) {
+  const buf = escreverWav([tom(440, 0.02)], TAXA);
+  const dv = new DataView(buf);
+  const posicoes = { canais: [22, 16], bits: [34, 16], taxa: [24, 32] };
+  const [pos, bits] = posicoes[campo];
+  if (bits === 16) dv.setUint16(pos, valor, true);
+  else dv.setUint32(pos, valor, true);
+  return buf;
+}
+
+teste('zero canais é recusado, não devolve lista vazia', () => {
+  let mensagem = '';
+  try { lerWav(wavAdulterado('canais', 0)); } catch (e) { mensagem = e.message; }
+  verdade(mensagem.includes('canais'), 'esperava erro sobre canais, veio: ' + mensagem);
+});
+
+teste('profundidade de bits estranha é recusada', () => {
+  let mensagem = '';
+  try { lerWav(wavAdulterado('bits', 7)); } catch (e) { mensagem = e.message; }
+  verdade(mensagem.includes('bits'), 'esperava erro sobre bits, veio: ' + mensagem);
+});
+
+teste('taxa de amostragem zero é recusada', () => {
+  let mensagem = '';
+  try { lerWav(wavAdulterado('taxa', 0)); } catch (e) { mensagem = e.message; }
+  verdade(mensagem.includes('amostragem'), 'esperava erro sobre taxa, veio: ' + mensagem);
+});
+
+teste('exportar sem áudio dá mensagem, não TypeError', () => {
+  let mensagem = '';
+  try { escreverWav([], TAXA); } catch (e) { mensagem = e.message; }
+  verdade(mensagem.includes('áudio'), 'mensagem: ' + mensagem);
+});
+
 secao('silêncio');
 teste('duração pedida em milissegundos', () => {
   const s = silencio(500, TAXA, 1);

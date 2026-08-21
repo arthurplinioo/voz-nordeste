@@ -54,6 +54,10 @@
           <span id="contador">0 caracteres</span>
           <span id="estimativa"></span>
         </div>
+        <details class="ajuda">
+          <summary>O que dá para marcar no texto</summary>
+          <dl id="lista-marcacao"></dl>
+        </details>
       </div>
 
       <details class="caixa previa" id="caixa-previa">
@@ -68,11 +72,11 @@
           <button class="botao grande" id="btn-amostra" title="Ouve uma frase curta com os ajustes atuais">Ouvir amostra</button>
           <button class="botao grande escondido" id="btn-cancelar">Cancelar</button>
         </div>
-        <div class="barra-progresso escondido" id="barra-progresso">
+        <div class="barra-progresso escondido" id="barra-progresso" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div class="barra-preenchida" id="barra-preenchida"></div>
           <span class="barra-rotulo" id="barra-rotulo"></span>
         </div>
-        <canvas class="onda" id="onda" height="90" aria-label="Forma de onda do áudio gerado"></canvas>
+        <canvas class="onda" id="onda" height="90" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Forma de onda do áudio gerado"></canvas>
         <div class="controles-player">
           <button class="botao redondo" id="btn-tocar" disabled aria-label="Tocar">▶</button>
           <span class="tempo" id="tempo">0:00 / 0:00</span>
@@ -95,7 +99,7 @@
         <h2>Sotaque nordestino</h2>
         <label class="campo">
           <span>Intensidade: <b id="rotulo-sotaque">Médio</b></span>
-          <input type="range" id="sotaque-nivel" min="0" max="3" step="1" value="2">
+          <input type="range" id="sotaque-nivel" min="0" max="3" step="1" value="2" aria-valuetext="Médio">
         </label>
         <label class="campo">
           <span>Região</span>
@@ -174,7 +178,7 @@
           </label>
         </div>
         <div class="medidor escondido" id="medidor"><div class="medidor-nivel" id="medidor-nivel"></div></div>
-        <canvas class="onda pequena" id="onda-entrada" height="70" aria-label="Forma de onda do áudio de entrada"></canvas>
+        <canvas class="onda pequena" id="onda-entrada" height="70" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Forma de onda do áudio de entrada"></canvas>
         <div class="controles-player">
           <button class="botao redondo" id="btn-tocar-entrada" disabled aria-label="Tocar entrada">▶</button>
           <span class="tempo" id="tempo-entrada">0:00 / 0:00</span>
@@ -261,14 +265,15 @@
           <button class="botao principal grande" id="btn-transformar" disabled>Transformar</button>
           <button class="botao grande escondido" id="btn-cancelar-voz">Cancelar</button>
         </div>
-        <div class="barra-progresso escondido" id="barra-progresso-voz">
+        <div class="barra-progresso escondido" id="barra-progresso-voz" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div class="barra-preenchida" id="barra-preenchida-voz"></div>
           <span class="barra-rotulo" id="barra-rotulo-voz"></span>
         </div>
-        <canvas class="onda" id="onda-saida" height="90" aria-label="Forma de onda do áudio transformado"></canvas>
+        <canvas class="onda" id="onda-saida" height="90" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Forma de onda do áudio transformado"></canvas>
         <div class="controles-player">
           <button class="botao redondo" id="btn-tocar-saida" disabled aria-label="Tocar resultado">▶</button>
           <span class="tempo" id="tempo-saida">0:00 / 0:00</span>
+          <button class="botao pequeno" id="btn-comparar" disabled title="Alterna entre o áudio original e o transformado">A / B</button>
           <div class="espacador"></div>
           <button class="botao pequeno" id="btn-baixar-wav-voz" disabled>Baixar WAV</button>
           <button class="botao pequeno" id="btn-baixar-mp3-voz" disabled>Baixar MP3</button>
@@ -418,7 +423,10 @@
 
 </main>
 
+<!-- Recados comuns em "polite"; erros em "assertive", senão um erro que some em
+     7 s pode nunca chegar a ser anunciado pelo leitor de tela. -->
 <div class="avisos" id="avisos" role="status" aria-live="polite"></div>
+<div class="avisos urgentes" id="avisos-urgentes" role="alert" aria-live="assertive"></div>
 
 <script src="vendor/lame.min.js"></script>
 <script type="module" src="js/app.js"></script>

@@ -55,6 +55,21 @@ export function salvarAjustes(ajustes) {
 }
 
 // ---------------------------------------------------------------------------
+// rascunho do editor
+//
+// Guardado a cada digitada (com folga) para que um F5 ou um fechamento
+// acidental da aba não leve embora o texto que a pessoa escreveu.
+
+export function lerRascunho() {
+  const t = ler('rascunho', '');
+  return typeof t === 'string' ? t : '';
+}
+
+export function salvarRascunho(txt) {
+  return gravar('rascunho', String(txt || '').slice(0, 60000));
+}
+
+// ---------------------------------------------------------------------------
 // presets do usuário
 
 export function lerPresets() {

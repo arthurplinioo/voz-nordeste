@@ -53,7 +53,6 @@ O que o motor faz, por nível:
 | Queda do -r geral | amor → amô | 2 |
 | Gerúndio sem /d/ | falando → falano | 2 |
 | Diminutivo nasal | devagarinho → devagarim | 2 |
-| Chiado de coda (PE e BA) | festa → fexta | 2 |
 | Léxico regional | você → ocê, mesmo → mermo | 2 |
 | Alçamento pretônico | menino → minino, comida → cumida | 3 |
 | Plural só no determinante | as casas bonitas → as casa bonita | 3 |
@@ -89,9 +88,21 @@ coisa que uma atriz gravando.
 não soa humano. Se você precisa de qualidade de estúdio ou de sotaque nordestino
 de verdade, o caminho é a nuvem — está descrito logo abaixo.
 
+**O chiado de coda de Recife e Salvador ficou de fora.** Trocar o "s" por "x"
+antes de consoante ("festa" → "fexta") parecia resolver, mas não se sustenta:
+"escola" viraria "excola", que o eSpeak pode ler com /k/, e o "x" antes de "t"
+costuma soar /s/ mesmo. Como não há como conferir a saída fonética sem ouvir
+caso a caso, a regra saiu. As variantes regionais se distinguem pelo léxico e
+pelos bordões.
+
 **Transcrever arquivo de áudio não funciona offline.** A Web Speech API só
 escuta o microfone. Para arquivo, use a aba de efeitos (que processa o som
 direto) ou a conversão na nuvem.
+
+**Há um teto de 20 mil caracteres por geração.** Acima disso o navegador fica
+sem memória: o áudio emendado é um único bloco contíguo de floats, e uma hora e
+meia de fala passa de meio gigabyte só no primeiro buffer. Textos maiores
+precisam ser gerados em partes.
 
 ---
 
@@ -167,7 +178,7 @@ Testes:
 npm test
 ```
 
-São 155 testes cobrindo as regras de sotaque, a normalização de texto, a
+São 201 testes cobrindo as regras de sotaque, a normalização de texto, a
 segmentação, o vocoder de fase (medindo altura por autocorrelação e formante por
 envelope cepstral) e a montagem do WAV.
 

@@ -12,7 +12,10 @@ self.onmessage = (e) => {
     const saida = processar(canais, m.taxa, m.opcoes, (p) => {
       self.postMessage({ tipo: 'progresso', reqId: m.reqId, valor: p });
     });
-    const buffers = saida.map((c) => c.buffer);
+    // buffer exato: transferir um subarray levaria o buffer inteiro junto
+    const buffers = saida.map((c) =>
+      c.byteOffset === 0 && c.buffer.byteLength === c.byteLength ? c.buffer : c.slice().buffer
+    );
     self.postMessage({ tipo: 'pronto', reqId: m.reqId, canais: buffers, taxa: m.taxa }, buffers);
   } catch (err) {
     self.postMessage({ tipo: 'erro', reqId: m.reqId, msg: String((err && err.message) || err) });

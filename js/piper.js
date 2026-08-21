@@ -38,9 +38,15 @@ function criarWorker() {
     else p.resolver(m);
   };
   worker.onerror = (e) => {
+    // sem isto o erro do worker também subia como "Uncaught" na página, mesmo
+    // já estando tratado aqui
+    if (e.preventDefault) e.preventDefault();
     const erro = new Error('Falha no motor de voz: ' + (e.message || 'erro desconhecido'));
     for (const p of pendentes.values()) p.rejeitar(erro);
     pendentes.clear();
+    // worker morto: a próxima chamada precisa criar um novo
+    try { worker.terminate(); } catch (err) { /* já morto */ }
+    worker = null;
   };
 }
 
@@ -99,13 +105,56 @@ export async function limparTudo() {
 
 /**
  * Gera o WAV de um trecho de texto.
+ *
+ * As chamadas são serializadas de propósito. Há um worker só, e as duas abas do
+ * app podem pedir geração ao mesmo tempo: sem a fila, os dois fluxos disputavam
+ * o mesmo `frasesGeradas` e a reciclagem automática derrubava o worker no meio
+ * da requisição do outro.
+ *
  * @returns {Promise<ArrayBuffer>}
  */
-export async function gerar(texto, vozId) {
+export function gerar(texto, vozId) {
+  const proxima = fila.then(
+    () => gerarAgora(texto, vozId),
+    () => gerarAgora(texto, vozId) // falha anterior não cancela a próxima
+  );
+  fila = proxima.catch(() => {});
+  return proxima;
+}
+
+let fila = Promise.resolve();
+
+const TENTATIVAS = 3;
+
+async function gerarAgora(texto, vozId) {
   if (frasesGeradas >= FRASES_ATE_RECICLAR) reciclar();
-  const r = await enviar({ tipo: 'gerar', texto, vozId });
-  frasesGeradas++;
-  return r.buf;
+
+  let ultimoErro = null;
+  for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa++) {
+    try {
+      const r = await enviar({ tipo: 'gerar', texto, vozId });
+      frasesGeradas++;
+      return r.buf;
+    } catch (e) {
+      ultimoErro = e;
+      // Voz incompatível é determinístico: repetir não muda nada.
+      if (e.incompativel) throw e;
+      if (tentativa === TENTATIVAS) break;
+      // O phonemizador e o runtime do WASM vêm de CDN e são buscados durante a
+      // inferência. Uma falha de rede ali derrubava a geração inteira no meio,
+      // perdendo tudo que já tinha sido sintetizado. Recicla e tenta de novo.
+      reciclar();
+      await esperar(600 * tentativa);
+    }
+  }
+  throw new Error(
+    'Não consegui gerar este trecho depois de ' + TENTATIVAS + ' tentativas. ' +
+    'Verifique a conexão. (' + (ultimoErro && ultimoErro.message) + ')'
+  );
+}
+
+function esperar(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /** Só para diagnóstico na tela de ajustes. */

@@ -6,7 +6,8 @@
 // imutáveis, então vão para um cache separado, gravado na primeira vez que
 // forem pedidos.
 
-const VERSAO = 'v1';
+// Suba este número a cada publicação: é ele que descarta o cache velho.
+const VERSAO = 'v2';
 const CACHE_CONCHA = 'voz-nordeste-concha-' + VERSAO;
 const CACHE_MOTOR = 'voz-nordeste-motor-' + VERSAO;
 
@@ -78,15 +79,58 @@ self.addEventListener('fetch', (e) => {
   // a API da ElevenLabs nunca deve ser cacheada
   if (url.hostname.endsWith('elevenlabs.io')) return;
 
+  // Modelos de voz e runtime do WASM: são imutáveis e enormes. Cache primeiro,
+  // sempre — nunca mudam de conteúdo sob a mesma URL.
   if (HOSTS_MOTOR.some((h) => url.hostname === h || url.hostname.endsWith('.' + h))) {
     e.respondWith(cacheDepoisRede(req, CACHE_MOTOR));
     return;
   }
 
+  // A concha do app usa stale-while-revalidate: responde na hora com o que tem
+  // e atualiza o cache em segundo plano. Com a política anterior (cache
+  // primeiro, sem hash no nome dos arquivos), publicar uma correção não chegava
+  // a ninguém que já tivesse aberto o site — a versão velha ficava presa até a
+  // pessoa limpar o armazenamento na mão.
   if (url.origin === location.origin) {
-    e.respondWith(cacheDepoisRede(req, CACHE_CONCHA));
+    e.respondWith(cacheEnquantoRevalida(req, CACHE_CONCHA));
   }
 });
+
+async function cacheEnquantoRevalida(req, nomeCache) {
+  const cache = await caches.open(nomeCache);
+  const guardado = await cache.match(req);
+
+  const daRede = fetch(req)
+    .then((resposta) => {
+      if (resposta && resposta.ok && resposta.status !== 206) {
+        cache.put(req, resposta.clone()).catch(() => {});
+        if (guardado) avisarSeMudou(req, guardado, resposta.clone());
+      }
+      return resposta;
+    })
+    .catch(() => null);
+
+  if (guardado) return guardado;
+  const resposta = await daRede;
+  if (resposta) return resposta;
+  if (req.mode === 'navigate') {
+    const inicio = await cache.match('index.html');
+    if (inicio) return inicio;
+  }
+  return new Response('Sem conexão e sem cópia guardada.', { status: 504 });
+}
+
+/** Avisa as abas abertas quando um arquivo da concha mudou de verdade. */
+async function avisarSeMudou(req, antiga, nova) {
+  try {
+    const [a, b] = await Promise.all([antiga.clone().text(), nova.text()]);
+    if (a === b) return;
+    const clientes = await self.clients.matchAll({ type: 'window' });
+    for (const c of clientes) c.postMessage({ tipo: 'nova-versao' });
+  } catch (e) {
+    // resposta binária ou já consumida: sem aviso, o cache já foi atualizado
+  }
+}
 
 async function cacheDepoisRede(req, nomeCache) {
   const cache = await caches.open(nomeCache);

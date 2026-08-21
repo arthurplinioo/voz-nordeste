@@ -8,13 +8,15 @@
 //
 // O que esta abordagem alcança: apagamento de -r final, vocalização do "lh",
 // monotongação, gerúndio em -no, diminutivo em -im, léxico e gírias regionais,
-// concordância só no determinante, chiado de coda em PE/BA.
+// concordância só no determinante.
 //
 // O que ela NÃO alcança (limitação real, documentada no README): a vogal
 // pretônica aberta ([ɛ]/[ɔ] em "mEnino", "cOração"), que é o marcador mais
 // forte do Nordeste. Não dá para forçar pela ortografia porque o acento agudo
 // em português também desloca a tônica — escrever "ménino" faria o motor
 // acentuar o "mé". Só um modelo treinado ou entrada em fonemas resolveria isso.
+
+import { separarFrases } from './texto.js';
 
 const COMBINANTES = /[̀-ͯ]/g;
 
@@ -84,6 +86,31 @@ const NAO_INFINITIVO = new Set([
   'senhor', 'colher', 'poder', 'prazer', 'dever', 'saber', 'querer',
 ]);
 
+/**
+ * Palavras em que a monotongação criaria OUTRA palavra existente.
+ *
+ * "seixo" virava "sexo" e o app falava obscenidade em voz alta sem ninguém
+ * perceber — a prévia mostra o texto todo, mas ninguém revisa palavra a palavra.
+ * Qualquer regra que apague letra precisa desta guarda.
+ */
+const MONOTONGO_EXCECOES = new Set([
+  'seixo', 'seixos', 'eixo', 'eixos', 'reixa', 'feixe', 'feixes',
+]);
+
+/**
+ * Plurais em -es cujo singular leva acento. A regra geral de concordância
+ * transformava "meses" em "me" e "países" em "paí", que não são fala
+ * nordestina — são palavras destruídas.
+ */
+const PLURAIS_IRREGULARES = new Map([
+  // chaves SEM acento: a busca normaliza antes de consultar
+  ['meses', 'mês'], ['paises', 'país'], ['ingleses', 'inglês'],
+  ['portugueses', 'português'], ['franceses', 'francês'], ['japoneses', 'japonês'],
+  ['chineses', 'chinês'], ['fregueses', 'freguês'], ['burgueses', 'burguês'],
+  ['reveses', 'revés'], ['deuses', 'deus'], ['gases', 'gás'], ['reis', 'rei'],
+  ['raizes', 'raiz'], ['juizes', 'juiz'], ['cafes', 'café'], ['pes', 'pé'],
+]);
+
 /** Substituições de léxico. `nivel` = intensidade mínima em que a regra entra. */
 const LEXICO = [
   // nível 1 — reduções que qualquer brasileiro faz na fala corrente
@@ -134,7 +161,15 @@ const LEXICO = [
   { de: 'coração', para: 'coração', nivel: 3 },
 ];
 
-/** Gírias: trocam o vocabulário, então ficam num botão à parte. */
+/**
+ * Gírias: trocam o vocabulário, então ficam num botão à parte.
+ *
+ * Várias delas são homônimas de palavras comuns — "nossa" é possessivo, "cara"
+ * é rosto, "legal" é jurídico, "puxa" é verbo. Trocar essas cegamente produzia
+ * frase agramatical ("Nossa casa" virava "Vixe casa"). Por isso existe o campo
+ * `soInterjeicao`: a troca só acontece quando a palavra vem seguida de vírgula,
+ * exclamação, interrogação ou ponto, que é a posição de interjeição.
+ */
 const GIRIAS = [
   { de: 'muito bom', para: 'arretado' },
   { de: 'muito boa', para: 'arretada' },
@@ -143,44 +178,38 @@ const GIRIAS = [
   { de: 'olha só', para: 'óia só' },
   { de: 'excelente', para: 'arretado da gota' },
   { de: 'ótimo', para: 'arretado' },
-  { de: 'legal', para: 'massa' },
-  { de: 'cara', para: 'mermão' },
-  { de: 'amigo', para: 'meu rei' },
-  { de: 'amiga', para: 'minha fía' },
-  { de: 'nossa', para: 'vixe' },
   { de: 'caramba', para: 'oxe' },
-  { de: 'puxa', para: 'eita' },
   { de: 'entendeu', para: 'visse' },
   { de: 'rápido', para: 'ligeiro' },
   { de: 'confusão', para: 'arrudia' },
   { de: 'teimoso', para: 'cabeça dura' },
-  { de: 'criança', para: 'menino' },
-  { de: 'dinheiro', para: 'dinhero' },
+  { de: 'nossa', para: 'vixe', soInterjeicao: true },
+  { de: 'puxa', para: 'eita', soInterjeicao: true },
+  { de: 'cara', para: 'mermão', soInterjeicao: true },
+  { de: 'amigo', para: 'meu rei', soInterjeicao: true },
+  { de: 'amiga', para: 'minha fía', soInterjeicao: true },
+  { de: 'legal', para: 'massa', soInterjeicao: true },
 ];
 
 /** Traços que variam por região. */
 const VARIANTES = {
   generico: {
     rotulo: 'Nordeste geral',
-    chiado: false,
     bordoes: ['Oxe,', 'Eita,', 'Rapaz,', 'Vixe,', 'Menino,'],
     fim: [', visse', ', rapaz', ', oxente'],
   },
   ceara: {
     rotulo: 'Ceará',
-    chiado: false,
     bordoes: ['Oxe,', 'Eita,', 'Macho,', 'Rapaz,'],
     fim: [', rapaz', ', oxente', ', mah'],
   },
   pernambuco: {
     rotulo: 'Pernambuco',
-    chiado: true,
     bordoes: ['Oxe,', 'Eita,', 'Vige,', 'Menino,'],
     fim: [', visse', ', meu rei', ', oxente'],
   },
   bahia: {
     rotulo: 'Bahia',
-    chiado: true,
     bordoes: ['Ô,', 'Vixe,', 'Meu rei,', 'Eita,'],
     fim: [', meu rei', ', viu', ', ó'],
   },
@@ -233,9 +262,15 @@ export function vocalizarLh(palavra) {
   const chave = semAcento(bx);
   if (LH_ESPECIAIS.has(chave)) return manterCaixa(palavra, LH_ESPECIAIS.get(chave));
   if (LH_EXCECOES.has(chave) || !bx.includes('lh')) return palavra;
+
+  // O acento em "ói"/"éi" marca a sílaba tônica. Numa oxítona ele cai na
+  // sílaba errada: "colher" virava "cóier", que o motor lê CÓ-ier. Em palavra
+  // terminada em r/l/z (oxítona pela regra do português) usamos a forma sem
+  // acento e deixamos a tônica onde já estava.
+  const oxitona = /[rlz]$/.test(bx) && !TEM_ACENTO.test(bx);
   const novo = bx
-    .replace(/elh/g, 'ei')
-    .replace(/olh/g, 'ói')
+    .replace(/elh/g, oxitona ? 'ei' : 'ei')
+    .replace(/olh/g, oxitona ? 'oi' : 'ói')
     .replace(/alh/g, 'ai')
     .replace(/ulh/g, 'ui')
     .replace(/ilh/g, 'i')
@@ -282,6 +317,7 @@ export function reduzirDiminutivo(palavra) {
 /** "beijo" -> "bejo", "outro" -> "ôtro": monotongação. */
 export function monotongar(palavra) {
   const bx = palavra.toLowerCase();
+  if (MONOTONGO_EXCECOES.has(semAcento(bx))) return palavra;
   const novo = bx
     .replace(/ei(?=[rjx])/g, 'e')
     .replace(/ei(?=ch)/g, 'e')
@@ -290,13 +326,12 @@ export function monotongar(palavra) {
   return manterCaixa(palavra, novo);
 }
 
-/** "festa" -> "fexta": chiado do /s/ em coda (Recife, Salvador). */
-export function chiar(palavra) {
-  const bx = palavra.toLowerCase();
-  const novo = bx.replace(/s(?=[ptcqf])/g, 'x');
-  if (novo === bx) return palavra;
-  return manterCaixa(palavra, novo);
-}
+// O chiado de coda ("festa" -> [fɛʃta]), típico de Recife e Salvador, foi
+// tentado aqui trocando o "s" por "x" antes de consoante. A ideia não se
+// sustenta: "escola" virava "excola", que o eSpeak pode ler com /k/, e em
+// "fexta" o "x" antes de "t" costuma soar /s/ mesmo, o que não muda nada.
+// Como não há como conferir a saída fonética sem ouvir cada caso, a regra saiu.
+// As variantes regionais continuam se distinguindo pelo léxico e pelos bordões.
 
 // ---------------------------------------------------------------------------
 // concordância
@@ -328,19 +363,50 @@ export function concordanciaDeSintagma(tokens) {
     }
     if (restam <= 0) return t;
     restam--;
-    if (!/(es|as|os|is)$/.test(bx) || bx.length <= 3) return t;
-    const singular = bx
-      .replace(/ões$/, 'ão')
-      .replace(/ães$/, 'ão')
-      .replace(/ais$/, 'al')
-      .replace(/éis$/, 'el')
-      .replace(/óis$/, 'ol')
-      .replace(/uis$/, 'ul')
-      .replace(/([rzs])es$/, '$1')
-      .replace(/s$/, '');
-    if (singular === bx || !singular) return t;
+    const singular = paraSingular(bx);
+    if (!singular || singular === bx) return t;
     return { tipo: t.tipo, texto: manterCaixa(t.texto, singular) };
   });
+}
+
+/**
+ * Singular de um plural, ou string vazia quando não dá para ter certeza.
+ *
+ * Só mexe nos casos em que a forma é inequívoca: vogal + s ("casas" -> "casa")
+ * e os plurais em -ões/-ães. Os demais (-eis, -is, -res, -zes) ficam como
+ * estão: tentar reduzi-los produzia "papel" a partir de "papéis" e "paí" a
+ * partir de "países". Errar para menos aqui é bem mais barato que errar
+ * para mais.
+ */
+export function paraSingular(bx) {
+  if (bx.length <= 3) return '';
+  const irregular = PLURAIS_IRREGULARES.get(semAcento(bx));
+  if (irregular) return irregular;
+  if (/ões$/.test(bx)) return bx.replace(/ões$/, 'ão');
+  if (/ães$/.test(bx)) return bx.replace(/ães$/, 'ão');
+  // "lápis", "ônibus", "pires", "papéis", "animais": ou já são singulares, ou o
+  // singular muda a última consoante. Não dá para adivinhar; ficam como estão.
+  if (/(is|us)$/.test(bx)) return '';
+
+  if (/es$/.test(bx) && bx.length > 4) {
+    // "-es" é ambíguo: pode ser palavra terminada em vogal + s ("dente" ->
+    // "dentes") ou terminada em consoante + es ("flor" -> "flores"). O radical
+    // decide: se sobrar uma consoante que termina palavra em português, era do
+    // segundo tipo.
+    const radical = bx.slice(0, -2);
+    if (/[rlzsn]$/.test(radical)) return temVogal(radical) ? radical : '';
+    return bx.slice(0, -1);
+  }
+
+  if (/[aeiouáéíóúâêôãõ]s$/.test(bx)) {
+    const sem = bx.slice(0, -1);
+    return temVogal(sem) ? sem : '';
+  }
+  return '';
+}
+
+function temVogal(s) {
+  return /[aeiouáéíóúâêôãõ]/.test(s) && s.length >= 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,14 +438,17 @@ export function juntar(tokens) {
 
 function aplicarMapaDeFrases(texto, pares) {
   let saida = texto;
-  for (const par of pares) {
-    if (!par || !par.de) continue;
+  // Do mais longo para o mais curto: com a ordem original, "para" casava antes
+  // e a regra "para o -> pro" nunca chegava a rodar.
+  const ordenados = pares.filter((p) => p && p.de).slice().sort((a, b) => b.de.length - a.de.length);
+  for (const par of ordenados) {
     const escapado = par.de.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // \b não funciona com acento; usamos limites por caractere de letra
-    const re = new RegExp(
-      '(^|[^\\p{L}\\p{M}])(' + escapado + ')(?![\\p{L}\\p{M}])',
-      'giu'
-    );
+    // O ponto final NÃO conta como posição de interjeição: com ele, "é um
+    // documento legal." virava "documento massa.". Vírgula, exclamação,
+    // interrogação e reticências, sim.
+    const depois = par.soInterjeicao ? '(?=\\s*[,!?…])' : '(?![\\p{L}\\p{M}])';
+    const re = new RegExp('(^|[^\\p{L}\\p{M}])(' + escapado + ')' + depois, 'giu');
     saida = saida.replace(re, (_m, antes, achado) => antes + manterCaixa(achado, par.para));
   }
   return saida;
@@ -439,7 +508,6 @@ export function aplicarSotaque(texto, opcoes) {
       p = reduzirGerundio(p);
       p = reduzirDiminutivo(p);
       p = apagarRFinal(p, { soInfinitivo: false });
-      if (variante.chiado) p = chiar(p);
     }
     return { tipo: t.tipo, texto: p };
   });
@@ -453,45 +521,103 @@ export function aplicarSotaque(texto, opcoes) {
   return saida;
 }
 
-/** Coloca um bordão no começo de ~1 a cada 4 frases, de forma determinística. */
+/**
+ * Coloca um bordão no começo de ~1 a cada 4 frases, de forma determinística.
+ *
+ * Junta as frases com o separador ORIGINAL de cada uma. Antes disso a função
+ * juntava tudo com um espaço simples, o que engolia os `\n\n`: com as gírias
+ * ligadas o texto inteiro virava um parágrafo só e o controle "pausa entre
+ * parágrafos" deixava de ter qualquer efeito, sem nenhuma pista do porquê.
+ */
 export function inserirBordoes(texto, variante) {
   const v = variante || VARIANTES.generico;
-  const frases = texto.split(/(?<=[.!?…])\s+/);
+  const frases = separarFrases(texto);
   const rnd = semente(texto);
   return frases
-    .map((f) => {
-      const limpo = f.trim();
-      if (limpo.length < 18) return f;
+    .map((parte) => {
+      const f = parte.texto;
+      if (f.trim().length < 18) return f + parte.separador;
       const sorte = rnd();
       if (sorte < 0.26) {
         const b = v.bordoes[Math.floor(rnd() * v.bordoes.length)];
-        return b + ' ' + f[0].toLowerCase() + f.slice(1);
+        return b + ' ' + f[0].toLowerCase() + f.slice(1) + parte.separador;
       }
       if (sorte > 0.88) {
         const fim = v.fim[Math.floor(rnd() * v.fim.length)];
-        return f.replace(/([.!?…])\s*$/, fim + '$1');
+        return f.replace(/([.!?…]+)\s*$/, fim + '$1') + parte.separador;
       }
-      return f;
+      return f + parte.separador;
     })
-    .join(' ');
+    .join('');
 }
 
-/** Lista legível das mudanças, para a tela de comparação. */
+/**
+ * Lista legível das mudanças, para a tela de comparação.
+ *
+ * Precisa de alinhamento de verdade, não de comparação posição a posição: as
+ * gírias inserem bordões e trocam uma palavra por duas, e a partir daí tudo
+ * desloca. O resultado antigo era uma lista de pares falsos ("trabalho → o"),
+ * que fazia o usuário achar que o motor estava quebrado. Aqui usamos a
+ * subsequência comum mais longa para achar o que de fato casa, e reportamos só
+ * o que sobrou entre as âncoras.
+ */
 export function diferencas(original, transformado) {
-  const a = tokenizar(original).filter((t) => t.tipo === 'palavra').map((t) => t.texto);
-  const b = tokenizar(transformado).filter((t) => t.tipo === 'palavra').map((t) => t.texto);
+  const LIMITE = 400; // o LCS é O(n*m): num capítulo inteiro não vale a pena
+  const a = tokenizar(original).filter((t) => t.tipo === 'palavra').map((t) => t.texto).slice(0, LIMITE);
+  const b = tokenizar(transformado).filter((t) => t.tipo === 'palavra').map((t) => t.texto).slice(0, LIMITE);
+
+  const igual = (x, y) => x.toLowerCase() === y.toLowerCase();
+  const n = a.length;
+  const m = b.length;
+
+  // tabela do LCS
+  const tab = [];
+  for (let i = 0; i <= n; i++) tab.push(new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      tab[i][j] = igual(a[i], b[j])
+        ? tab[i + 1][j + 1] + 1
+        : Math.max(tab[i + 1][j], tab[i][j + 1]);
+    }
+  }
+
   const pares = [];
   const vistos = new Set();
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    if (a[i].toLowerCase() === b[i].toLowerCase()) continue;
-    const chave = a[i].toLowerCase() + '>' + b[i].toLowerCase();
-    if (vistos.has(chave)) continue;
-    vistos.add(chave);
-    pares.push({ de: a[i], para: b[i] });
-    if (pares.length >= 40) break;
+  let i = 0;
+  let j = 0;
+  let removidas = [];
+  let inseridas = [];
+
+  const fechar = () => {
+    // uma troca 1-para-1 é o caso interessante; o resto é inserção de bordão
+    const quantas = Math.min(removidas.length, inseridas.length);
+    for (let k = 0; k < quantas; k++) {
+      const chave = removidas[k].toLowerCase() + '>' + inseridas[k].toLowerCase();
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      pares.push({ de: removidas[k], para: inseridas[k] });
+    }
+    removidas = [];
+    inseridas = [];
+  };
+
+  while (i < n && j < m) {
+    if (igual(a[i], b[j])) {
+      fechar();
+      i++;
+      j++;
+    } else if (tab[i + 1][j] >= tab[i][j + 1]) {
+      removidas.push(a[i++]);
+    } else {
+      inseridas.push(b[j++]);
+    }
+    if (pares.length >= 40) return pares;
   }
-  return pares;
+  while (i < n) removidas.push(a[i++]);
+  while (j < m) inseridas.push(b[j++]);
+  fechar();
+
+  return pares.slice(0, 40);
 }
 
 export const _internos = {

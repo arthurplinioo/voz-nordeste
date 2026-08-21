@@ -1,7 +1,9 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { secao, teste, igual, verdade, fim } from './ajuda.mjs';
 import {
   numeroPorExtenso, ordinalPorExtenso, normalizar, segmentar, lerPausa,
   limparMarcacao, dividirEmFrases, quebrarPorTamanho, estimarDuracao, formatarDuracao,
+  separarFrases, dividirEnfase,
 } from '../js/texto.js';
 
 secao('número por extenso');
@@ -127,6 +129,102 @@ teste('ênfase é reconhecida e o asterisco sai do texto', () => {
 });
 teste('texto vazio dá zero trechos', () => igual(segmentar('   \n\n  ', {}).length, 0));
 teste('só marcação não gera trecho mudo', () => igual(segmentar('[pausa 500]', {}).length, 0));
+
+// ---------------------------------------------------------------------------
+// Regressões
+
+secao('regressões: normalização');
+
+teste('temperatura não é lida como ordinal', () => {
+  const saida = normalizar('Faz 30°C hoje.');
+  verdade(saida.includes('trinta graus'), 'saída: ' + saida);
+  verdade(!saida.includes('trigésimo'), 'saída: ' + saida);
+});
+teste('temperatura com espaço também', () =>
+  verdade(normalizar('Faz 30 °C hoje.').includes('trinta graus')));
+teste('o ordinal continua funcionando', () =>
+  verdade(normalizar('o 1º lugar').includes('primeiro lugar')));
+
+teste('título curto em caixa alta não é soletrado', () => {
+  const saida = normalizar('BOM DIA');
+  verdade(saida.includes('BOM DIA'), 'saída: ' + saida);
+});
+teste('caixa alta com acento não vira lixo', () => {
+  const saida = normalizar('ATENÇÃO GERAL');
+  verdade(!saida.includes(' ç '), 'saída: ' + saida);
+});
+teste('palavra acentuada em caixa alta nunca é soletrada', () => {
+  const saida = normalizar('o setor de MANUTENÇÃO fica ali');
+  verdade(saida.includes('MANUTENÇÃO'), 'saída: ' + saida);
+});
+teste('sigla no meio de frase minúscula continua soletrada', () =>
+  verdade(normalizar('preciso do meu CPF agora').includes('cê pê éfe')));
+
+teste('CPF é lido dígito a dígito', () => {
+  const saida = normalizar('O CPF é 123.456.789-00');
+  verdade(saida.includes('um dois três'), 'saída: ' + saida);
+  verdade(!saida.includes('milhões'), 'saída: ' + saida);
+});
+teste('CNPJ é lido dígito a dígito', () =>
+  verdade(!normalizar('CNPJ 12.345.678/0001-99').includes('milhões')));
+teste('telefone com DDD é lido dígito a dígito', () => {
+  const saida = normalizar('Ligue (81) 99999-1234');
+  verdade(!saida.includes('mil'), 'saída: ' + saida);
+});
+teste('CEP é lido dígito a dígito', () =>
+  verdade(normalizar('CEP 50000-000').includes('cinco zero zero zero zero')));
+teste('valor em reais continua sendo lido como número', () =>
+  verdade(normalizar('R$ 1.234,56').includes('mil duzentos e trinta e quatro reais')));
+
+secao('regressões: ênfase');
+teste('ênfase no meio da frase é reconhecida', () => {
+  const s = segmentar('Ele aprendeu a *esperar* sem desanimar.', {});
+  const marcado = s.find((x) => x.enfase);
+  verdade(marcado, 'nenhum trecho ficou com ênfase: ' + JSON.stringify(s));
+  igual(marcado.texto, 'esperar');
+});
+teste('frase inteira entre asteriscos, com o ponto dentro', () => {
+  const s = segmentar('*Atenção total.*', {});
+  igual(s.length, 1);
+  igual(s[0].enfase, true);
+  igual(s[0].texto, 'Atenção total.');
+});
+teste('asterisco solto não vira marcação', () => {
+  const s = segmentar('Dois * três = seis.', {});
+  igual(s.length, 1);
+  igual(s[0].enfase, false);
+});
+teste('duas ênfases na mesma frase', () => {
+  const s = segmentar('*Isto* e *aquilo* aqui.', {});
+  igual(s.filter((x) => x.enfase).length, 2);
+});
+teste('a pausa da frase fica no último trecho, não no meio da ênfase', () => {
+  const s = segmentar('Ele quer *isso* agora. Fim.', { pausaFrase: 500 });
+  igual(s[0].pausaMs, 0);
+  igual(s[1].pausaMs, 0);
+  igual(s[2].pausaMs, 500);
+});
+
+secao('regressões: compatibilidade');
+teste('separarFrases devolve o texto original sem perder nada', () => {
+  const t = 'Uma frase. Outra!\n\nUm parágrafo novo... e o fim?';
+  igual(separarFrases(t).map((f) => f.texto + f.separador).join(''), t);
+});
+teste('separarFrases mantém a quebra de parágrafo no separador', () => {
+  const partes = separarFrases('Uma.\n\nOutra.');
+  verdade(partes[0].separador.includes('\n\n'), JSON.stringify(partes));
+});
+teste('nenhum módulo usa lookbehind (quebra o Safari 15)', () => {
+  const dir = new URL('../js/', import.meta.url);
+  for (const nome of readdirSync(dir)) {
+    if (!nome.endsWith('.js') || nome.includes('bundle')) continue;
+    // sem os comentários: o próprio texto que explica a regra cita a sintaxe
+    const codigo = readFileSync(new URL(nome, dir), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    verdade(!/\(\?<[=!]/.test(codigo), nome + ' usa lookbehind');
+  }
+});
 
 secao('estimativa');
 teste('mais texto, mais tempo', () => {

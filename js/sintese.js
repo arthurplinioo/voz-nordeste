@@ -16,10 +16,17 @@ import { acharVoz, combinar } from './vozes.js';
 
 let dspWorker = null;
 let dspProximoId = 1;
+let dspIndisponivel = false; // navegador sem Worker de módulo
 const dspPendentes = new Map();
 
+/** ArrayBuffer que contém exatamente os dados do array, e nada além. */
+function bufferProprio(c) {
+  if (c.byteOffset === 0 && c.buffer.byteLength === c.byteLength) return c.buffer.slice(0);
+  return c.slice().buffer;
+}
+
 function garantirDsp() {
-  if (dspWorker) return dspWorker;
+  if (dspWorker || dspIndisponivel) return dspWorker;
   try {
     dspWorker = new Worker('js/dsp-worker.js', { type: 'module' });
     dspWorker.onmessage = (e) => {
@@ -33,15 +40,41 @@ function garantirDsp() {
       else p.resolver({ canais: m.canais.map((b) => new Float32Array(b)), taxa: m.taxa });
     };
     dspWorker.onerror = () => {
-      // navegador sem worker de módulo: cai para a thread principal
+      // Safari e Firefox antigos não têm Worker de módulo. Sem o terminate e
+      // sem a trava, cada transformação criava um worker novo que falhava de
+      // novo, vazando uma instância por vez.
+      try { dspWorker.terminate(); } catch (err) { /* já morto */ }
       dspWorker = null;
+      dspIndisponivel = true;
       for (const p of dspPendentes.values()) p.rejeitar(new Error('worker-indisponivel'));
       dspPendentes.clear();
     };
   } catch (e) {
     dspWorker = null;
+    dspIndisponivel = true;
   }
   return dspWorker;
+}
+
+/**
+ * Cancela o processamento em andamento.
+ *
+ * O vocoder é um laço síncrono dentro do worker: não há ponto onde checar uma
+ * bandeira. Derrubar o worker é a única forma real de parar, e é barato — ele
+ * é recriado na próxima chamada.
+ */
+export function cancelarProcessamento() {
+  if (!dspWorker) return false;
+  try { dspWorker.terminate(); } catch (e) { /* já morto */ }
+  dspWorker = null;
+  for (const p of dspPendentes.values()) p.rejeitar(Object.assign(new Error('Processamento cancelado.'), { cancelado: true }));
+  dspPendentes.clear();
+  return true;
+}
+
+/** true quando o processamento vai rodar na thread principal (e travar a tela). */
+export function processamentoBloqueiaTela() {
+  return dspIndisponivel;
 }
 
 /** Processa no worker; se não houver worker, processa aqui mesmo. */
@@ -49,7 +82,7 @@ async function processarAudio(canais, taxa, opcoes, aoProgresso) {
   const w = garantirDsp();
   if (w) {
     const reqId = dspProximoId++;
-    const buffers = canais.map((c) => c.buffer.slice(0));
+    const buffers = canais.map(bufferProprio);
     try {
       return await new Promise((resolver, rejeitar) => {
         dspPendentes.set(reqId, { resolver, rejeitar, aoProgresso });
