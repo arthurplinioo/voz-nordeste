@@ -53,17 +53,26 @@ function criarWorker() {
 async function enviar(mensagem, transferiveis) {
   if (!worker) criarWorker();
   await pronto;
+  // Entre o `await` e o envio, um reciclar() concorrente pode ter zerado o
+  // worker; sem esta segunda checagem o postMessage estourava TypeError.
+  if (!worker) {
+    criarWorker();
+    await pronto;
+  }
+  const alvo = worker;
   const reqId = proximoId++;
   return new Promise((resolver, rejeitar) => {
     pendentes.set(reqId, { resolver, rejeitar });
-    worker.postMessage(Object.assign({ reqId }, mensagem), transferiveis || []);
+    alvo.postMessage(Object.assign({ reqId }, mensagem), transferiveis || []);
   });
 }
 
 /** Derruba e recria o worker, devolvendo a memória do WASM. */
 export function reciclar() {
   if (worker) {
-    const erro = new Error('Geração interrompida.');
+    // marcado como interrompido para o retry não tentar de novo: reciclar é
+    // uma decisão nossa, não uma falha de rede
+    const erro = Object.assign(new Error('Geração interrompida.'), { interrompido: true });
     for (const p of pendentes.values()) p.rejeitar(erro);
     pendentes.clear();
     worker.terminate();
@@ -137,8 +146,11 @@ async function gerarAgora(texto, vozId) {
       return r.buf;
     } catch (e) {
       ultimoErro = e;
-      // Voz incompatível é determinístico: repetir não muda nada.
-      if (e.incompativel) throw e;
+      // Determinísticos: repetir não muda nada. Voz incompatível é erro de
+      // modelo; "interrompido" é o usuário mandando parar — insistir aí
+      // custava três tentativas e quase dois segundos de espera antes de dar
+      // uma mensagem falsa sobre a conexão.
+      if (e.incompativel || e.interrompido) throw e;
       if (tentativa === TENTATIVAS) break;
       // O phonemizador e o runtime do WASM vêm de CDN e são buscados durante a
       // inferência. Uma falha de rede ali derrubava a geração inteira no meio,

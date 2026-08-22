@@ -144,6 +144,21 @@ teste('colher não vira cóier (tônica errada)', () => {
   verdade(!saida.includes('cóier'), 'saída: ' + saida);
 });
 
+teste('mães não vira mão', () => {
+  const saida = aplicarSotaque('As mães chegaram cedo.', { nivel: 3 });
+  verdade(saida.includes('mãe'), 'saída: ' + saida);
+  verdade(!saida.includes('mão'), 'saída: ' + saida);
+});
+
+teste('"ou" conjunção continua sendo alternativa, não interjeição', () => {
+  const saida = aplicarSotaque('Você quer café ou chá?', { nivel: 1 });
+  verdade(saida.includes(' ou '), 'saída: ' + saida);
+});
+teste('a monotongação continua valendo dentro da palavra', () => {
+  const saida = aplicarSotaque('O outro sou eu.', { nivel: 1 });
+  verdade(saida.includes('ôtro') && saida.includes('sô'), 'saída: ' + saida);
+});
+
 secao('regressões: singularização');
 teste('casas vira casa', () => igual(paraSingular('casas'), 'casa'));
 teste('flores vira flor', () => igual(paraSingular('flores'), 'flor'));
@@ -154,6 +169,11 @@ teste('cafés vira café', () => igual(paraSingular('cafés'), 'café'));
 teste('pães vira pão', () => igual(paraSingular('pães'), 'pão'));
 teste('lápis fica como está', () => igual(paraSingular('lápis'), ''));
 teste('animais fica como está', () => igual(paraSingular('animais'), ''));
+teste('mães vira mãe, não mão', () => igual(paraSingular('mães'), 'mãe'));
+teste('pães vira pão', () => igual(paraSingular('pães'), 'pão'));
+teste('cães vira cão', () => igual(paraSingular('cães'), 'cão'));
+teste('holandeses vira holandês, com acento', () => igual(paraSingular('holandeses'), 'holandês'));
+teste('ingleses vira inglês', () => igual(paraSingular('ingleses'), 'inglês'));
 
 secao('regressões: gírias homônimas');
 teste('"nossa" possessivo não vira interjeição', () => {

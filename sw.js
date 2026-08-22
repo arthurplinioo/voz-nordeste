@@ -7,7 +7,7 @@
 // forem pedidos.
 
 // Suba este número a cada publicação: é ele que descarta o cache velho.
-const VERSAO = 'v2';
+const VERSAO = 'v3';
 const CACHE_CONCHA = 'voz-nordeste-concha-' + VERSAO;
 const CACHE_MOTOR = 'voz-nordeste-motor-' + VERSAO;
 

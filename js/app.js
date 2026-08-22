@@ -631,6 +631,10 @@ function ligarAbaTexto() {
   // junto o trabalho da outra aba. A geração para depois do trecho corrente.
   $('btn-cancelar').addEventListener('click', () => {
     if (canceladorTexto) canceladorTexto.cancelar();
+    // A etapa de timbre é um laço síncrono no worker e costuma ser a mais
+    // demorada de uma narração longa: marcar o cancelador não a alcança, só
+    // derrubar o worker para de fato.
+    sintese.cancelarProcessamento();
     $('barra-rotulo').textContent = 'Parando depois deste trecho…';
   });
 

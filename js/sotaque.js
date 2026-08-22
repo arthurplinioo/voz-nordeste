@@ -95,6 +95,10 @@ const NAO_INFINITIVO = new Set([
  */
 const MONOTONGO_EXCECOES = new Set([
   'seixo', 'seixos', 'eixo', 'eixos', 'reixa', 'feixe', 'feixes',
+  // "ou" sozinho é conjunção: virar "ô" trocava a alternativa da frase por uma
+  // interjeição ("café ou chá" saía "café ô chá"). Dentro de palavra a
+  // monotongação continua valendo — "outro" -> "ôtro", "sou" -> "sô".
+  'ou',
 ]);
 
 /**
@@ -109,6 +113,9 @@ const PLURAIS_IRREGULARES = new Map([
   ['chineses', 'chinês'], ['fregueses', 'freguês'], ['burgueses', 'burguês'],
   ['reveses', 'revés'], ['deuses', 'deus'], ['gases', 'gás'], ['reis', 'rei'],
   ['raizes', 'raiz'], ['juizes', 'juiz'], ['cafes', 'café'], ['pes', 'pé'],
+  // "mães" é a exceção da classe -ães: "pães"/"cães"/"alemães" viram -ão, esta
+  // vira "mãe". Sem a entrada, "as mães" saía "as mão".
+  ['maes', 'mãe'],
 ]);
 
 /** Substituições de léxico. `nivel` = intensidade mínima em que a regra entra. */
@@ -269,7 +276,7 @@ export function vocalizarLh(palavra) {
   // acento e deixamos a tônica onde já estava.
   const oxitona = /[rlz]$/.test(bx) && !TEM_ACENTO.test(bx);
   const novo = bx
-    .replace(/elh/g, oxitona ? 'ei' : 'ei')
+    .replace(/elh/g, 'ei')
     .replace(/olh/g, oxitona ? 'oi' : 'ói')
     .replace(/alh/g, 'ai')
     .replace(/ulh/g, 'ui')
@@ -387,6 +394,10 @@ export function paraSingular(bx) {
   // "lápis", "ônibus", "pires", "papéis", "animais": ou já são singulares, ou o
   // singular muda a última consoante. Não dá para adivinhar; ficam como estão.
   if (/(is|us)$/.test(bx)) return '';
+
+  // gentílicos e afins: "holandeses" -> "holandês", com o acento que a forma
+  // singular exige
+  if (/eses$/.test(bx) && bx.length > 5) return bx.slice(0, -4) + 'ês';
 
   if (/es$/.test(bx) && bx.length > 4) {
     // "-es" é ambíguo: pode ser palavra terminada em vogal + s ("dente" ->

@@ -176,6 +176,53 @@ teste('CEP é lido dígito a dígito', () =>
 teste('valor em reais continua sendo lido como número', () =>
   verdade(normalizar('R$ 1.234,56').includes('mil duzentos e trinta e quatro reais')));
 
+secao('regressões: caixa alta é ênfase, não sigla');
+
+const intacto = (entrada, palavra) => () => {
+  const saida = normalizar(entrada);
+  verdade(saida.includes(palavra), 'saída: ' + saida);
+};
+
+teste('ATENÇÃO! não é picado no cedilha', intacto('ATENÇÃO!', 'ATENÇÃO!'));
+teste('PARE continua uma palavra', intacto('PARE', 'PARE'));
+teste('SIM continua uma palavra', intacto('SIM, senhor', 'SIM,'));
+teste('SÃO PAULO continua legível', intacto('Ele mora em SÃO PAULO', 'SÃO PAULO'));
+teste('COMPRE JÁ não vira soletração', intacto('COMPRE JÁ', 'COMPRE JÁ'));
+teste('título longo em caixa alta sobrevive',
+  intacto('ATENÇÃO TODOS OS ALUNOS DEVEM COMPARECER', 'ALUNOS'));
+
+const soletrado = (entrada, trecho) => () => {
+  const saida = normalizar(entrada);
+  verdade(saida.includes(trecho), 'saída: ' + saida);
+};
+
+teste('CPF continua soletrado', soletrado('meu CPF', 'cê pê éfe'));
+teste('duas siglas na mesma frase são soletradas',
+  soletrado('meu CPF e meu RG', 'érre gê'));
+teste('CNPJ continua soletrado', soletrado('o CNPJ da empresa', 'cê êne pê jota'));
+teste('TV continua soletrada', soletrado('Vi na TV ontem', 'tê vê'));
+teste('OAB é soletrada mesmo tendo vogal', soletrado('a OAB e a ONU', 'ó á bê'));
+teste('ONU continua sendo lida como palavra', intacto('a OAB e a ONU', 'ONU'));
+teste('NASA continua sendo lida como palavra', intacto('A NASA e o FBI', 'NASA'));
+
+secao('regressões: números com hífen');
+teste('intervalo de anos não é telefone', () => {
+  const saida = normalizar('A guerra de 1939-1945 durou seis anos.');
+  verdade(saida.includes('mil novecentos e trinta e nove a mil novecentos'), 'saída: ' + saida);
+});
+teste('intervalo recente também', () =>
+  verdade(normalizar('O intervalo 2020-2024').includes('dois mil e vinte a dois mil e vinte e quatro')));
+teste('celular continua soletrado', () =>
+  verdade(normalizar('Ligue 99999-1234').includes('nove nove nove nove nove')));
+teste('telefone com DDD continua soletrado', () =>
+  verdade(!normalizar('Ligue (81) 3322-1100').includes('mil')));
+
+secao('regressões: unidades que o mapa prometia');
+teste('metros', () => verdade(normalizar('Tem 5 m aqui.').includes('cinco metros')));
+teste('litros', () => verdade(normalizar('Tem 3 l aqui.').includes('três litros')));
+teste('graus continua funcionando', () =>
+  verdade(normalizar('Faz 30°C.').includes('trinta graus')));
+
 secao('regressões: ênfase');
 teste('ênfase no meio da frase é reconhecida', () => {
   const s = segmentar('Ele aprendeu a *esperar* sem desanimar.', {});

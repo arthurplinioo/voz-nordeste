@@ -92,15 +92,17 @@ const ABREVIACOES = new Map([
   ['apto.', 'apartamento'], ['nº', 'número'], ['n.º', 'número'],
   ['etc.', 'etcétera'], ['pág.', 'página'], ['págs.', 'páginas'],
   ['obs.', 'observação'], ['ex.', 'exemplo'], ['cia.', 'companhia'],
-  ['ltda.', 'limitada'], ['tel.', 'telefone'], ['cep', 'cêpe'],
+  ['ltda.', 'limitada'], ['tel.', 'telefone'],
 ]);
 
+// Só entram aqui unidades que a expressão de medida realmente procura; hora
+// tem regra própria, mais acima.
 const UNIDADES_MEDIDA = new Map([
   ['km/h', 'quilômetros por hora'], ['km', 'quilômetros'], ['m', 'metros'],
   ['cm', 'centímetros'], ['mm', 'milímetros'], ['kg', 'quilos'],
   ['g', 'gramas'], ['mg', 'miligramas'], ['l', 'litros'], ['ml', 'mililitros'],
-  ['h', 'horas'], ['min', 'minutos'], ['s', 'segundos'], ['°c', 'graus'],
-  ['ºc', 'graus'], ['mb', 'megabytes'], ['gb', 'gigabytes'], ['kb', 'kilobytes'],
+  ['min', 'minutos'], ['°c', 'graus'], ['ºc', 'graus'],
+  ['mb', 'megabytes'], ['gb', 'gigabytes'], ['kb', 'kilobytes'],
 ]);
 
 /** Sequência de letras maiúsculas que se lê letra a letra ("CPF" -> "cê pê éfe"). */
@@ -111,11 +113,46 @@ const NOME_DAS_LETRAS = {
   x: 'xis', y: 'ípsilon', z: 'zê',
 };
 
-/** Siglas que já se leem como palavra — não soletrar. */
+/** Siglas que já se leem como palavra — nunca soletrar. */
 const SIGLAS_FALADAS = new Set([
   'ONU', 'OTAN', 'PIB', 'MEC', 'IBGE', 'USP', 'UFPE', 'UFC', 'SUS', 'FIES',
   'ENEM', 'SENAI', 'SESC', 'CEP', 'PIX', 'COVID', 'AIDS', 'NASA', 'FIFA',
+  'ONG', 'UTI', 'DETRAN', 'SEBRAE', 'INSS', 'IPVA', 'IPTU', 'PIS',
 ]);
+
+/**
+ * Siglas com vogal que ainda assim se soletram. A regra automática abaixo só
+ * pega as sem vogal; estas precisam ser nomeadas uma a uma.
+ */
+const SIGLAS_SOLETRADAS = new Set([
+  'OAB', 'CNH', 'URL', 'PDF', 'DVD', 'USB', 'ATM', 'EUA', 'CIA', 'FBI',
+  'HD', 'TI', 'RH', 'BO', 'AI', 'IA',
+]);
+
+/**
+ * Decide se uma palavra em caixa alta é sigla para soletrar.
+ *
+ * O padrão foi invertido: antes soletrava tudo que estivesse em maiúsculas e
+ * abria exceção para as siglas conhecidas. Só que o caso comum de caixa alta em
+ * texto é ÊNFASE, não sigla — "PARE" saía "pê á érre é" e "SIM" saía "ésse i
+ * ême". Agora só soletra o que é reconhecidamente sigla:
+ *
+ *   - está na lista de siglas soletradas conhecidas; ou
+ *   - não tem nenhuma vogal (CPF, RG, TV, CNPJ, SP); ou
+ *   - tem três ou mais consoantes seguidas, que não formam sílaba portuguesa.
+ *
+ * Palavra com acento nunca é soletrada: sigla não leva acento, e o resultado
+ * saía ininteligível de qualquer jeito.
+ */
+function ehSigla(palavra) {
+  if (SIGLAS_FALADAS.has(palavra)) return false;
+  if (SIGLAS_SOLETRADAS.has(palavra)) return true;
+  if (/[^A-Z]/.test(palavra)) return false; // acento, cedilha, número
+  if (!/[AEIOU]/.test(palavra)) return true;
+  // Três consoantes seguidas não formam sílaba em português, mas só valem como
+  // pista de sigla em palavra curta: "COMPRE" tem MPR e é palavra.
+  return palavra.length <= 5 && /[^AEIOU]{3}/.test(palavra);
+}
 
 function soletrar(sigla) {
   return sigla
@@ -161,7 +198,16 @@ export function normalizar(texto, opcoes) {
   t = t.replace(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g, (m) => soletrarDigitos(m));     // CNPJ
   t = t.replace(/\b\d{5}-\d{3}\b/g, (m) => soletrarDigitos(m));                           // CEP
   t = t.replace(/\(\s*\d{2}\s*\)\s*9?\d{4}[-\s]?\d{4}\b/g, (m) => soletrarDigitos(m));    // telefone com DDD
-  t = t.replace(/\b9?\d{4}-\d{4}\b/g, (m) => soletrarDigitos(m));                         // telefone sem DDD
+
+  // Intervalo de anos, antes do telefone: "1939-1945" tem a mesma forma de um
+  // telefone fixo e saía soletrado dígito a dígito.
+  t = t.replace(/\b(1\d{3}|20\d{2})\s*[-–—]\s*(1\d{3}|20\d{2})\b/g, (_m, a, b) =>
+    numeroPorExtenso(parseInt(a, 10)) + ' a ' + numeroPorExtenso(parseInt(b, 10))
+  );
+
+  // Telefone sem DDD só com o 9 inicial dos celulares. A forma \d{4}-\d{4}
+  // sozinha é ambígua demais: casava com qualquer par de números com hífen.
+  t = t.replace(/\b9\d{4}-\d{4}\b/g, (m) => soletrarDigitos(m));
 
   // porcentagem
   t = t.replace(/(\d+(?:,\d+)?)\s*%/g, (_m, n) => {
@@ -197,7 +243,7 @@ export function normalizar(texto, opcoes) {
   // Unidades de medida. Precisa vir ANTES do ordinal: a regra de ordinal casa
   // o "°" de "30°C" e devolvia "trigésimoC", deixando as entradas de grau do
   // mapa de unidades inalcançáveis.
-  t = t.replace(/\b(\d+(?:,\d+)?)\s*(km\/h|km|cm|mm|kg|mg|ml|mb|gb|kb|[°º]\s*[cC]|min)\b/g, (_m, n, un) => {
+  t = t.replace(/\b(\d+(?:,\d+)?)\s*(km\/h|km|cm|mm|kg|mg|ml|mb|gb|kb|[°º]\s*[cC]|min|[mgl])\b/g, (_m, n, un) => {
     const chave = un.toLowerCase().replace(/\s+/g, '');
     const nome = UNIDADES_MEDIDA.get(chave);
     if (!nome) return _m;
@@ -216,10 +262,15 @@ export function normalizar(texto, opcoes) {
   });
 
   // siglas em caixa alta (3+ letras) que não se leem como palavra
-  // Só solétra sequências sem acento: "ATENÇÃO" caía no ramo genérico e saía
-  // como "á tê é êne ç ãO" — nem soletrado, nem palavra.
+  // Soletração de siglas. A regra é conservadora de propósito: ver ehSigla.
   if (o.soletrarSiglas !== false && !predominaCaixaAlta(t)) {
-    t = t.replace(/\b([A-Z]{2,6})\b/g, (m) => (SIGLAS_FALADAS.has(m) ? m : soletrar(m)));
+    // \b é ASCII: em "ATENÇÃO" ele enxergava fronteira antes do "Ç" e soletrava
+    // só o "ATEN", deixando "ÇÃO" grudado. Limites por caractere de letra
+    // Unicode fazem a palavra ser tratada inteira.
+    t = t.replace(
+      /(^|[^\p{L}\p{M}\p{N}])(\p{Lu}{2,6})(?![\p{L}\p{M}\p{N}])/gu,
+      (_m, antes, palavra) => antes + (ehSigla(palavra) ? soletrar(palavra) : palavra)
+    );
   }
 
   // números soltos (inteiros e decimais)
@@ -249,12 +300,18 @@ export function normalizar(texto, opcoes) {
  * justamente no caso em que ela é desejada.
  */
 function predominaCaixaAlta(t) {
-  const palavras = t.match(/\b[\p{L}]{2,}\b/gu) || [];
-  if (palavras.length < 2) return false;
-  const ehAlta = (p) => p === p.toUpperCase() && p !== p.toLowerCase();
-  const altas = palavras.filter(ehAlta).length;
-  if (altas === palavras.length) return true;
-  return palavras.length >= 4 && altas / palavras.length > 0.4;
+  // Sem \b, que é ASCII: com ele "JÁ" não contava como palavra (o Á quebrava a
+  // fronteira) e um título de três palavras passava por dois.
+  const palavras = t.match(/[\p{L}\p{M}]{2,}/gu) || [];
+  // Precisa de três palavras longas para caracterizar um título. Com duas, uma
+  // frase como "a OAB e a ONU" — cujas únicas palavras longas são siglas —
+  // seria confundida com título e a soletração morreria justo onde é desejada.
+  if (palavras.length < 3) return false;
+  // Só o critério "tudo em caixa alta". A proporção de 40% que existia aqui
+  // fazia mais mal do que bem depois que a soletração passou a ser
+  // conservadora: "meu CPF e meu RG" tem metade das palavras em caixa alta e
+  // deixava de ser soletrado.
+  return palavras.every((p) => p === p.toUpperCase() && p !== p.toLowerCase());
 }
 
 function lerDecimal(txt) {

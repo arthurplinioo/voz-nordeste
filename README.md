@@ -178,7 +178,7 @@ Testes:
 npm test
 ```
 
-São 201 testes cobrindo as regras de sotaque, a normalização de texto, a
+São 229 testes cobrindo as regras de sotaque, a normalização de texto, a
 segmentação, o vocoder de fase (medindo altura por autocorrelação e formante por
 envelope cepstral) e a montagem do WAV.
 
