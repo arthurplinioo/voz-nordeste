@@ -178,9 +178,16 @@ Testes:
 npm test
 ```
 
-São 229 testes cobrindo as regras de sotaque, a normalização de texto, a
+São 248 testes cobrindo as regras de sotaque, a normalização de texto, a
 segmentação, o vocoder de fase (medindo altura por autocorrelação e formante por
 envelope cepstral) e a montagem do WAV.
+
+O arquivo `testes/teste-vocabulario.mjs` merece nota: em vez de caçar palavra
+quebrada uma a uma, ele passa um vocabulário de uso comum pelos três níveis de
+sotaque e cobra que toda saída continue pronunciável em português — nenhuma
+palavra termina em grupo consonantal, e nenhuma vira outra palavra da lista.
+Foi assim que a classe inteira de defeitos ("meses" virando "me", "pobres"
+virando "pobr") deixou de depender de listas de exceção crescentes.
 
 ---
 

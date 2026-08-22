@@ -7,7 +7,7 @@
   "scripts": {
     "bundle": "esbuild src-worker/piper-worker.src.js --bundle --format=iife --minify --external:fs --external:path --outfile=js/piper-worker.bundle.js",
     "icones": "node ferramentas/gerar-icones.mjs",
-    "test": "node testes/teste-sotaque.mjs && node testes/teste-texto.mjs && node testes/teste-dsp.mjs && node testes/teste-audio.mjs",
+    "test": "node testes/teste-sotaque.mjs && node testes/teste-texto.mjs && node testes/teste-dsp.mjs && node testes/teste-audio.mjs && node testes/teste-vocabulario.mjs",
     "start": "node ferramentas/servidor.mjs"
   },
   "devDependencies": {

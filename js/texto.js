@@ -117,7 +117,7 @@ const NOME_DAS_LETRAS = {
 const SIGLAS_FALADAS = new Set([
   'ONU', 'OTAN', 'PIB', 'MEC', 'IBGE', 'USP', 'UFPE', 'UFC', 'SUS', 'FIES',
   'ENEM', 'SENAI', 'SESC', 'CEP', 'PIX', 'COVID', 'AIDS', 'NASA', 'FIFA',
-  'ONG', 'UTI', 'DETRAN', 'SEBRAE', 'INSS', 'IPVA', 'IPTU', 'PIS',
+  'ONG', 'UTI', 'DETRAN', 'SEBRAE', 'PIS', 'SENAC', 'ANVISA', 'BACEN',
 ]);
 
 /**
@@ -126,7 +126,8 @@ const SIGLAS_FALADAS = new Set([
  */
 const SIGLAS_SOLETRADAS = new Set([
   'OAB', 'CNH', 'URL', 'PDF', 'DVD', 'USB', 'ATM', 'EUA', 'CIA', 'FBI',
-  'HD', 'TI', 'RH', 'BO', 'AI', 'IA',
+  'HD', 'TI', 'RH', 'BO', 'AI', 'IA', 'DNA', 'RNA', 'CD', 'LED', 'GPS',
+  'IPTU', 'IPVA', 'INSS', 'IML', 'HBO', 'CEO', 'EAD', 'GTA', 'FGTS',
 ]);
 
 /**
@@ -138,8 +139,7 @@ const SIGLAS_SOLETRADAS = new Set([
  * ême". Agora só soletra o que é reconhecidamente sigla:
  *
  *   - está na lista de siglas soletradas conhecidas; ou
- *   - não tem nenhuma vogal (CPF, RG, TV, CNPJ, SP); ou
- *   - tem três ou mais consoantes seguidas, que não formam sílaba portuguesa.
+ *   - não tem nenhuma vogal (CPF, RG, TV, CNPJ, SP, HTML).
  *
  * Palavra com acento nunca é soletrada: sigla não leva acento, e o resultado
  * saía ininteligível de qualquer jeito.
@@ -148,10 +148,12 @@ function ehSigla(palavra) {
   if (SIGLAS_FALADAS.has(palavra)) return false;
   if (SIGLAS_SOLETRADAS.has(palavra)) return true;
   if (/[^A-Z]/.test(palavra)) return false; // acento, cedilha, número
-  if (!/[AEIOU]/.test(palavra)) return true;
-  // Três consoantes seguidas não formam sílaba em português, mas só valem como
-  // pista de sigla em palavra curta: "COMPRE" tem MPR e é palavra.
-  return palavra.length <= 5 && /[^AEIOU]{3}/.test(palavra);
+  // Só a ausência de vogal. A pista das "três consoantes seguidas" que existia
+  // aqui parecia segura e não era: "ENTRE", "EXTRA" e "TCHAU" têm encontro
+  // consonantal e são palavras — "NÃO ENTRE sem bater" saía "NÃO é êne tê érre
+  // é sem bater". As siglas que aquela regra pegava (HTML, CSS, SMS, STF) não
+  // têm vogal nenhuma e continuam sendo pegas pela linha acima.
+  return !/[AEIOU]/.test(palavra);
 }
 
 function soletrar(sigla) {
@@ -293,11 +295,8 @@ export function normalizar(texto, opcoes) {
  * Um texto escrito todo em maiúsculas não é uma sigla — soletrar tudo ali
  * deixaria a fala ininteligível ("BOM DIA" virava "bê ó ême dê i á").
  *
- * Dois gatilhos, porque um só não dava conta. Se TODAS as palavras estão em
- * caixa alta, é um título e a soletração sai — vale mesmo em texto de duas
- * palavras. Acima disso, a proporção de 40% só é confiável com texto
- * suficiente, senão "meu CPF" (metade em caixa alta) desligaria a soletração
- * justamente no caso em que ela é desejada.
+ * Se TODAS as palavras longas estão em caixa alta, é um título e a
+ * soletração sai.
  */
 function predominaCaixaAlta(t) {
   // Sem \b, que é ASCII: com ele "JÁ" não contava como palavra (o Á quebrava a

@@ -25,6 +25,42 @@ function semAcento(s) {
   return s.normalize('NFD').replace(COMBINANTES, '');
 }
 
+const VOGAIS = 'aeiouáéíóúâêôàãõü';
+
+/**
+ * A palavra resultante é pronunciável em português?
+ *
+ * Esta é a guarda que faltava. Toda regra daqui apaga letra, e toda uma classe
+ * de defeitos vinha de apagar demais: "meses" virava "me", "pobres" virava
+ * "pobr", "simples" virava "simpl". Cada caso desses foi descoberto por alguém
+ * lendo uma frase em voz alta, e a resposta era sempre mais uma lista de
+ * exceção — que nunca fica pronta.
+ *
+ * O critério aqui é estrutural, não lexical: em português nenhuma palavra
+ * termina em grupo consonantal. Depois da última vogal cabe no máximo uma
+ * consoante (flor, mês, mal), ou o par "ns"/"rs"/"ls" dos plurais (jovens).
+ * "pobr" e "simpl" morrem nessa regra sem precisar estar em lista nenhuma.
+ */
+export function pronunciavel(palavra) {
+  const bx = (palavra || '').toLowerCase();
+  if (!bx) return false;
+  // uma letra só é palavra quando é vogal: os artigos "a" e "o", a conjunção
+  // "e". Rejeitá-las fazia a varredura acusar a frase inteira.
+  if (bx.length === 1) return VOGAIS.includes(bx);
+
+  let ultimaVogal = -1;
+  for (let i = bx.length - 1; i >= 0; i--) {
+    if (VOGAIS.includes(bx[i])) { ultimaVogal = i; break; }
+  }
+  if (ultimaVogal < 0) return false; // sem vogal nenhuma não é palavra
+
+  const cauda = bx.slice(ultimaVogal + 1);
+  if (cauda.length === 0) return true;
+  if (cauda.length === 1) return 'lmnrszx'.includes(cauda);
+  if (cauda.length === 2) return ['ns', 'rs', 'ls'].includes(cauda);
+  return false;
+}
+
 /** Palavras em que a regra do "lh" quebraria o sentido. */
 const LH_EXCECOES = new Set([
   'ilha', 'ilhas', 'milha', 'milhas', 'quilha', 'ilhota', 'ilheu', 'ilheus',
@@ -52,6 +88,7 @@ const NAO_GERUNDIO = new Set([
   'mundo', 'fundo', 'segundo', 'profundo', 'vagabundo', 'moribundo', 'imundo',
   'bando', 'brando', 'comando', 'contrabando', 'lindo', 'findo', 'nefando',
   'tremendo', 'horrendo', 'estupendo', 'reverendo', 'brindo', 'oriundo',
+  'remendo', 'estrondo',
 ]);
 
 /** Palavras terminadas em -inho/-inha que não são diminutivo. */
@@ -59,6 +96,7 @@ const NAO_DIMINUTIVO = new Set([
   'caminho', 'caminhos', 'vinho', 'vinhos', 'moinho', 'ninho', 'ninhos',
   'pinho', 'linho', 'arminho', 'padrinho', 'focinho', 'espinho', 'espinhos',
   'carinho', 'sobrinho', 'banho', 'punho', 'sonho', 'sonhos', 'desenho',
+  'vizinho', 'vizinhos', 'marinho', 'golfinho', 'golfinhos', 'molinho',
   'engenho', 'lenho', 'tamanho', 'estranho', 'rebanho', 'ganho', 'ganhos',
 ]);
 
@@ -116,6 +154,18 @@ const PLURAIS_IRREGULARES = new Map([
   // "mães" é a exceção da classe -ães: "pães"/"cães"/"alemães" viram -ão, esta
   // vira "mãe". Sem a entrada, "as mães" saía "as mão".
   ['maes', 'mãe'],
+]);
+
+/**
+ * Palavras iguais no singular e no plural, e as que só existem no plural.
+ * A guarda de pronunciabilidade não pega estas: "atla" e "pir" são
+ * pronunciáveis, só não são palavras.
+ */
+const INVARIAVEIS = new Set([
+  'pires', 'atlas', 'lapis', 'onibus', 'virus', 'tenis', 'bonus', 'oasis',
+  'cais', 'simples', 'ourives', 'fenix', 'torax', 'climax', 'cutis',
+  'oculos', 'ferias', 'fezes', 'nupcias', 'viveres', 'arredores', 'parabens',
+  'costas', 'oleos', 'anais', 'funerais',
 ]);
 
 /** Substituições de léxico. `nivel` = intensidade mínima em que a regra entra. */
@@ -387,6 +437,7 @@ export function concordanciaDeSintagma(tokens) {
  */
 export function paraSingular(bx) {
   if (bx.length <= 3) return '';
+  if (INVARIAVEIS.has(semAcento(bx))) return '';
   const irregular = PLURAIS_IRREGULARES.get(semAcento(bx));
   if (irregular) return irregular;
   if (/ões$/.test(bx)) return bx.replace(/ões$/, 'ão');
@@ -402,22 +453,21 @@ export function paraSingular(bx) {
   if (/es$/.test(bx) && bx.length > 4) {
     // "-es" é ambíguo: pode ser palavra terminada em vogal + s ("dente" ->
     // "dentes") ou terminada em consoante + es ("flor" -> "flores"). O radical
-    // decide: se sobrar uma consoante que termina palavra em português, era do
-    // segundo tipo.
+    // decide: se sobrar algo que termina palavra em português, era do segundo
+    // tipo. "pobres" tem radical "pobr", que não termina palavra nenhuma —
+    // então é do primeiro, e vira "pobre".
     const radical = bx.slice(0, -2);
-    if (/[rlzsn]$/.test(radical)) return temVogal(radical) ? radical : '';
-    return bx.slice(0, -1);
+    if (pronunciavel(radical)) return radical;
+    return conferir(bx.slice(0, -1));
   }
 
-  if (/[aeiouáéíóúâêôãõ]s$/.test(bx)) {
-    const sem = bx.slice(0, -1);
-    return temVogal(sem) ? sem : '';
-  }
+  if (/[aeiouáéíóúâêôãõ]s$/.test(bx)) return conferir(bx.slice(0, -1));
   return '';
 }
 
-function temVogal(s) {
-  return /[aeiouáéíóúâêôãõ]/.test(s) && s.length >= 2;
+/** Só aceita o singular se o resultado ainda for uma palavra possível. */
+function conferir(candidato) {
+  return pronunciavel(candidato) ? candidato : '';
 }
 
 // ---------------------------------------------------------------------------
@@ -533,6 +583,17 @@ export function aplicarSotaque(texto, opcoes) {
 }
 
 /**
+ * A frase deixou de começar o período (ganhou um bordão na frente), então a
+ * inicial desce. Palavra inteira em caixa alta fica como está: rebaixar só a
+ * primeira letra de "NÃO" produzia "nÃO".
+ */
+function rebaixarInicial(f) {
+  const primeira = (f.match(/^[\p{L}\p{M}]+/u) || [''])[0];
+  if (primeira.length > 1 && primeira === primeira.toUpperCase()) return f;
+  return f[0].toLowerCase() + f.slice(1);
+}
+
+/**
  * Coloca um bordão no começo de ~1 a cada 4 frases, de forma determinística.
  *
  * Junta as frases com o separador ORIGINAL de cada uma. Antes disso a função
@@ -551,7 +612,7 @@ export function inserirBordoes(texto, variante) {
       const sorte = rnd();
       if (sorte < 0.26) {
         const b = v.bordoes[Math.floor(rnd() * v.bordoes.length)];
-        return b + ' ' + f[0].toLowerCase() + f.slice(1) + parte.separador;
+        return b + ' ' + rebaixarInicial(f) + parte.separador;
       }
       if (sorte > 0.88) {
         const fim = v.fim[Math.floor(rnd() * v.fim.length)];
